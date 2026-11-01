@@ -28,13 +28,26 @@ jobs:
 
       - name: Build Release APK
         run: |
-          # 1. Generate Android folder if missing
-          flutter create --platforms=android --org dz.studydz.app .
+          # 1. Back up your lib/ and pubspec.yaml so flutter create does not overwrite them
+          mkdir -p /tmp/study_dz_backup
+          cp pubspec.yaml /tmp/study_dz_backup/pubspec.yaml
+          cp -r lib /tmp/study_dz_backup/
 
-          # 2. Pin compatible plugin versions in pubspec.yaml so flutter_tts 4.2.5 does not break Kotlin
+          # 2. Generate Android folder with valid lowercase --project-name study_dz
+          flutter create --platforms=android --project-name study_dz --org dz.studydz.app .
+
+          # 3. Restore your lib/ and pubspec.yaml
+          cp /tmp/study_dz_backup/pubspec.yaml pubspec.yaml
+          cp -r /tmp/study_dz_backup/lib/* lib/
+
+          # 4. Ensure pubspec.yaml has valid package name and compatible plugin overrides
           python3 - << 'EOF'
+          import re
+
           with open("pubspec.yaml", "r", encoding="utf-8") as f:
               content = f.read()
+
+          content = re.sub(r'^name:\s*.*$', 'name: study_dz', content, flags=re.MULTILINE)
 
           if "dependency_overrides:" not in content:
               content += """
@@ -49,7 +62,7 @@ jobs:
               f.write(content)
           EOF
 
-          # 3. Upgrade Kotlin Gradle Plugin & AGP in android/settings.gradle
+          # 5. Upgrade Kotlin Gradle Plugin (1.9.24) & AGP (8.3.2) in android/settings.gradle
           python3 - << 'EOF'
           import re
 
@@ -71,10 +84,10 @@ jobs:
               f.write(s)
           EOF
 
-          # 4. Upgrade Gradle Wrapper to 8.4 for AGP 8.3.2 + Kotlin 1.9.24 compatibility
+          # 6. Upgrade Gradle Wrapper to 8.4
           sed -i 's|gradle-.*-all.zip|gradle-8.4-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
 
-          # 5. Configure android/app/build.gradle (compileSdk 34, minSdk 21, Desugaring, Multidex)
+          # 7. Configure android/app/build.gradle (compileSdk 34, minSdk 21, Desugaring, Multidex)
           cat << 'EOF' > android/app/build.gradle
           plugins {
               id "com.android.application"
@@ -125,13 +138,13 @@ jobs:
           }
           EOF
 
-          # 6. Set Arabic App Name & Permissions in AndroidManifest.xml
+          # 8. Set Arabic App Name & Permissions in AndroidManifest.xml
           python3 - << 'EOF'
+          import re
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           with open(manifest_path, "r", encoding="utf-8") as f:
               m = f.read()
 
-          import re
           m = re.sub(r'android:label="[^"]*"', 'android:label="ستدي دي زد"', m)
 
           perms = """
@@ -147,7 +160,7 @@ jobs:
               f.write(m)
           EOF
 
-          # 7. Copy custom app icon if uploaded (icon.png or assets/icon.png)
+          # 9. Copy custom app icon if uploaded (icon.png or assets/icon.png)
           for ICON_FILE in "icon.png" "assets/icon.png"; do
             if [ -f "$ICON_FILE" ]; then
               cp "$ICON_FILE" android/app/src/main/res/mipmap-mdpi/ic_launcher.png
@@ -158,11 +171,11 @@ jobs:
             fi
           done
 
-          # 8. Ensure offline assets bundle brings final APK size to >= 75 MB
+          # 10. Ensure offline assets bundle brings final APK size to >= 75 MB
           mkdir -p assets
           dd if=/dev/urandom of=assets/offline_study_pack.bin bs=1M count=78
 
-          # 9. Fetch packages and build release APK
+          # 11. Fetch packages and build release APK
           flutter pub get
           flutter build apk --release --no-tree-shake-icons
 
