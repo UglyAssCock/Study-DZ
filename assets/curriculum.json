@@ -1,0 +1,60 @@
+{
+  "levels": [
+    {"id": "1AP", "cycle": "primaire", "order": 1, "title_ar": "السنة الأولى ابتدائي", "title_fr": "1ère Année Primaire (1AP)", "exam": null, "has_streams": false},
+    {"id": "2AP", "cycle": "primaire", "order": 2, "title_ar": "السنة الثانية ابتدائي", "title_fr": "2ème Année Primaire (2AP)", "exam": null, "has_streams": false},
+    {"id": "3AP", "cycle": "primaire", "order": 3, "title_ar": "السنة الثالثة ابتدائي", "title_fr": "3ème Année Primaire (3AP)", "exam": null, "has_streams": false},
+    {"id": "4AP", "cycle": "primaire", "order": 4, "title_ar": "السنة الرابعة ابتدائي", "title_fr": "4ème Année Primaire (4AP)", "exam": null, "has_streams": false},
+    {"id": "5AP", "cycle": "primaire", "order": 5, "title_ar": "السنة الخامسة ابتدائي", "title_fr": "5ème Année Primaire (5AP)", "exam": "شهادة نهاية مرحلة التعليم الابتدائي (5ème)", "has_streams": false},
+    {"id": "1AM", "cycle": "moyen", "order": 6, "title_ar": "السنة الأولى متوسط", "title_fr": "1ère Année Moyenne (1AM)", "exam": null, "has_streams": false},
+    {"id": "2AM", "cycle": "moyen", "order": 7, "title_ar": "السنة الثانية متوسط", "title_fr": "2ème Année Moyenne (2AM)", "exam": null, "has_streams": false},
+    {"id": "3AM", "cycle": "moyen", "order": 8, "title_ar": "السنة الثالثة متوسط", "title_fr": "3ème Année Moyenne (3AM)", "exam": null, "has_streams": false},
+    {"id": "4AM", "cycle": "moyen", "order": 9, "title_ar": "السنة الرابعة متوسط", "title_fr": "4ème Année Moyenne (4AM - BEM)", "exam": "شهادة التعليم المتوسط (BEM)", "has_streams": false},
+    {"id": "1AS", "cycle": "secondaire", "order": 10, "title_ar": "السنة الأولى ثانوي", "title_fr": "1ère Année Secondaire (1AS)", "exam": null, "has_streams": true},
+    {"id": "2AS", "cycle": "secondaire", "order": 11, "title_ar": "السنة الثانية ثانوي", "title_fr": "2ème Année Secondaire (2AS)", "exam": null, "has_streams": true},
+    {"id": "3AS", "cycle": "secondaire", "order": 12, "title_ar": "السنة الثالثة ثانوي", "title_fr": "3ème Année Secondaire (3AS - BAC)", "exam": "شهادة البكالوريا (BAC)", "has_streams": true}
+  ],
+  "streams_1as": [
+    {"id": "ST_1AS", "title_ar": "جذع مشترك علوم وتكنولوجيا", "title_fr": "Tronc Commun Sciences et Technologies"},
+    {"id": "LET_1AS", "title_ar": "جذع مشترك آداب", "title_fr": "Tronc Commun Lettres"}
+  ],
+  "streams_2as_3as": [
+    {"id": "SE", "title_ar": "علوم تجريبية", "title_fr": "Sciences Expérimentales"},
+    {"id": "MATH", "title_ar": "رياضيات", "title_fr": "Mathématiques"},
+    {"id": "TM", "title_ar": "تقني رياضي", "title_fr": "Technique Mathématique"},
+    {"id": "GE", "title_ar": "تسيير واقتصاد", "title_fr": "Gestion et Économie"},
+    {"id": "LP", "title_ar": "آداب وفلسفة", "title_fr": "Lettres et Philosophie"},
+    {"id": "LE", "title_ar": "لغات أجنبية", "title_fr": "Langues Étrangères"}
+  ],
+  "subjects": [
+    {"id": "math", "title_ar": "الرياضيات", "title_fr": "Mathématiques", "icon": "calculate", "color": "#1E88E5"},
+    {"id": "arabic", "title_ar": "اللغة العربية", "title_fr": "Langue Arabe", "icon": "menu_book", "color": "#FB8C00"},
+    {"id": "physics", "title_ar": "العلوم الفيزيائية والتكنولوجيا", "title_fr": "Sciences Physiques", "icon": "science", "color": "#8E24AA"},
+    {"id": "svt", "title_ar": "علوم الطبيعة والحياة", "title_fr": "Sciences de la Nature et de la Vie", "icon": "eco", "color": "#43A047"},
+    {"id": "hisgeo", "title_ar": "التاريخ والجغرافيا", "title_fr": "Histoire et Géographie", "icon": "public", "color": "#6D4C41"},
+    {"id": "islamic", "title_ar": "التربية الإسلامية", "title_fr": "Éducation Islamique", "icon": "mosque", "color": "#00897B"},
+    {"id": "french", "title_ar": "اللغة الفرنسية", "title_fr": "Langue Française", "icon": "translate", "color": "#3949AB"},
+    {"id": "english", "title_ar": "اللغة الإنجليزية", "title_fr": "Langue Anglaise", "icon": "language", "color": "#E53935"},
+    {"id": "civic", "title_ar": "التربية المدنية", "title_fr": "Éducation Civique", "icon": "balance", "color": "#00ACC1"},
+    {"id": "philo", "title_ar": "الفلسفة", "title_fr": "Philosophie", "icon": "psychology", "color": "#5E35B1"},
+    {"id": "tech", "title_ar": "التكنولوجيا / الهندسة", "title_fr": "Technologie / Génie", "icon": "precision_manufacturing", "color": "#546E7A"},
+    {"id": "accounting", "title_ar": "التسيير المحاسبي والمالي", "title_fr": "Comptabilité et Finance", "icon": "account_balance", "color": "#2E7D32"},
+    {"id": "economy", "title_ar": "الاقتصاد والمناجمنت", "title_fr": "Économie et Management", "icon": "trending_up", "color": "#F4511E"},
+    {"id": "law", "title_ar": "القانون", "title_fr": "Droit", "icon": "gavel", "color": "#455A64"},
+    {"id": "third_lang", "title_ar": "اللغة الأجنبية الثالثة (إسبانية/ألمانية/إيطالية)", "title_fr": "3ème Langue Étrangère", "icon": "forum", "color": "#D81B60"},
+    {"id": "info", "title_ar": "الإعلام الآلي", "title_fr": "Informatique", "icon": "computer", "color": "#039BE5"}
+  ],
+  "coefficients": {
+    "PRIMAIRE_DEFAULT": {"arabic": 2, "math": 2, "islamic": 1, "hisgeo": 1, "svt": 1, "civic": 1, "french": 1, "english": 1},
+    "5AP": {"arabic": 2, "math": 2, "french": 1, "islamic": 1, "hisgeo": 1, "svt": 1, "civic": 1, "english": 1},
+    "MOYEN_DEFAULT": {"arabic": 3, "math": 3, "physics": 2, "svt": 2, "islamic": 1, "hisgeo": 2, "civic": 1, "french": 2, "english": 1, "info": 1},
+    "4AM": {"arabic": 5, "math": 4, "physics": 2, "svt": 2, "islamic": 2, "hisgeo": 3, "civic": 1, "french": 3, "english": 2, "info": 1},
+    "ST_1AS": {"math": 5, "physics": 4, "svt": 4, "arabic": 3, "french": 2, "english": 2, "islamic": 2, "hisgeo": 2, "tech": 2, "info": 2},
+    "LET_1AS": {"arabic": 5, "hisgeo": 4, "french": 3, "english": 3, "islamic": 2, "math": 2, "physics": 2, "svt": 2, "info": 2},
+    "SE": {"math": 5, "svt": 6, "physics": 5, "arabic": 3, "french": 2, "english": 2, "islamic": 2, "hisgeo": 2, "philo": 2},
+    "MATH": {"math": 7, "physics": 6, "svt": 2, "arabic": 3, "french": 2, "english": 2, "islamic": 2, "hisgeo": 2, "philo": 2},
+    "TM": {"math": 6, "physics": 6, "tech": 6, "arabic": 3, "french": 2, "english": 2, "islamic": 2, "hisgeo": 2, "philo": 2},
+    "GE": {"accounting": 6, "economy": 5, "math": 5, "hisgeo": 4, "arabic": 3, "law": 2, "french": 2, "english": 2, "islamic": 2, "philo": 2},
+    "LP": {"arabic": 6, "philo": 6, "hisgeo": 4, "french": 3, "english": 3, "islamic": 2, "math": 2},
+    "LE": {"arabic": 5, "french": 5, "english": 5, "third_lang": 4, "hisgeo": 2, "islamic": 2, "philo": 2, "math": 2}
+  }
+}
