@@ -1,0 +1,33 @@
+name: study_dz
+description: "ستدي دي زد - Study DZ: تطبيق الدراسة الشامل للتلميذ الجزائري"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.3.2
+  http: ^1.2.2
+  flutter_tts: ^4.0.2
+  flutter_local_notifications: ^17.2.3
+  path_provider: ^2.1.4
+  open_filex: ^4.5.0
+  share_plus: ^10.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/curriculum.json
+    - assets/lessons.json
+    - assets/exams.json
+    - assets/quizzes.json
+    - assets/flashcards.json
+    - assets/calendar.json
+    - assets/pdfs/
