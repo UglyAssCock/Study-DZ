@@ -61,7 +61,7 @@ jobs:
           shutil.copy2("/tmp/study_dz_backup/pubspec.yaml", "pubspec.yaml")
           shutil.copytree("/tmp/study_dz_backup/lib", "lib", dirs_exist_ok=True)
 
-          # 4. Repair stripped angle brackets and withValues() in all lib/**/*.dart files
+          # 4. Repair stripped angle brackets, CardTheme, and withValues() in all lib/**/*.dart files
           def G(inner):
               return LT + inner + GT
 
@@ -90,7 +90,8 @@ jobs:
                   with open(fpath, "r", encoding="utf-8") as f:
                       c = f.read()
 
-                  # Replace Flutter 3.27 .withValues(alpha: x) with Flutter 3.24 .withOpacity(x)
+                  # Replace Flutter 3.27 CardThemeData and .withValues(alpha: x) with Flutter 3.24 APIs
+                  c = c.replace("CardThemeData(", "CardTheme(")
                   c = re.sub(r"\.withValues\(\s*alpha:\s*([^)]+)\)", r".withOpacity(\1)", c)
 
                   # Restore AppScope generics
@@ -193,7 +194,7 @@ jobs:
           android {
               namespace = "dz.studydz.app"
               compileSdk = 34
-              ndkVersion = flutter.ndkVersion
+              ndkVersion = "25.1.8937393"
 
               compileOptions {
                   coreLibraryDesugaringEnabled true
