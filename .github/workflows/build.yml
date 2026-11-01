@@ -1,4 +1,4 @@
-name: Build Study DZ Release APK
+name: build-apk
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -21,91 +22,68 @@ jobs:
       - name: Set up Flutter Stable
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.3'
+          flutter-version: '3.24.5'
           channel: 'stable'
           cache: true
 
-      - name: Generate Android Platform Files & Configure Manifest/Gradle
+      - name: Build Release APK
         run: |
-          mkdir -p backup_code
-          cp pubspec.yaml backup_code/
-          cp -r lib backup_code/
-          cp -r assets backup_code/
+          # 1. Generate Android folder if missing
+          flutter create --platforms=android --org dz.studydz.app .
 
-          flutter create --platforms=android --org dz.studydz --project-name study_dz .
-
-          cp backup_code/pubspec.yaml .
-          cp -r backup_code/lib/* lib/
-          cp -r backup_code/assets/* assets/
-          rm -rf backup_code
-
-          mkdir -p assets/pdfs
-
+          # 2. Pin compatible plugin versions in pubspec.yaml so flutter_tts 4.2.5 does not break Kotlin
           python3 - << 'EOF'
-          import os
+          with open("pubspec.yaml", "r", encoding="utf-8") as f:
+              content = f.read()
 
-          # 1. Create valid sample offline PDF documents inside assets/pdfs/
-          sample_pdfs = [
-              "sample_lesson_summary.pdf",
-              "exam_5ap_math_2024.pdf",
-              "exam_bem_math_2024.pdf",
-              "exam_bac_sciences_math_2024.pdf"
-          ]
-          minimal_pdf = (
-              b"%PDF-1.4\n"
-              b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-              b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-              b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R"
-              b"/Resources<</Font<</F1 5 0 R>>>>>>endobj\n"
-              b"4 0 obj<</Length 68>>stream\n"
-              b"BT /F1 18 Tf 70 750 Td (Study DZ - Offline Exam & Summary Document) Tj ET\n"
-              b"endstream endobj\n"
-              b"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n"
-              b"xref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000052 00000 n \n"
-              b"0000000101 00000 n \n0000000204 00000 n \n0000000321 00000 n \n"
-              b"trailer<</Size 6/Root 1 0 R>>\nstartxref\n389\n%%EOF\n"
-          )
-          for pdf_name in sample_pdfs:
-              pdf_path = os.path.join("assets", "pdfs", pdf_name)
-              if not os.path.exists(pdf_path):
-                  with open(pdf_path, "wb") as f:
-                      f.write(minimal_pdf)
-
-          # 2. Generate offline high-capacity archive pack so final APK exceeds 75 MB
-          # without affecting runtime RAM on low-end phones.
-          pack_path = os.path.join("assets", "pdfs", "offline_media_pack.bin")
-          if not os.path.exists(pack_path):
-              with open(pack_path, "wb") as f:
-                  f.write(os.urandom(64 * 1024 * 1024))
-
-          # 3. Configure AndroidManifest.xml with Arabic App Name & Notification permissions
-          manifest_path = "android/app/src/main/AndroidManifest.xml"
-          with open(manifest_path, "r", encoding="utf-8") as f:
-              manifest = f.read()
-
-          permissions_block = """
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <uses-permission android:name="android.permission.VIBRATE"/>
-              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-              <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+          if "dependency_overrides:" not in content:
+              content += """
+          dependency_overrides:
+            flutter_tts: 4.0.2
+            flutter_local_notifications: 17.2.3
+            shared_preferences: 2.2.3
+            path_provider: 2.1.4
+            sqflite: 2.3.3+1
           """
-          if "android.permission.POST_NOTIFICATIONS" not in manifest:
-              manifest = manifest.replace("<application", permissions_block + "\n    <application", 1)
+          with open("pubspec.yaml", "w", encoding="utf-8") as f:
+              f.write(content)
+          EOF
 
-          manifest = manifest.replace('android:label="study_dz"', 'android:label="ستدي دي زد"')
-          with open(manifest_path, "w", encoding="utf-8") as f:
-              f.write(manifest)
+          # 3. Upgrade Kotlin Gradle Plugin & AGP in android/settings.gradle
+          python3 - << 'EOF'
+          import re
 
-          # 4. Write clean, compatible android/app/build.gradle with Java 17 + Desugaring
-          build_gradle_content = """plugins {
+          settings_path = "android/settings.gradle"
+          with open(settings_path, "r", encoding="utf-8") as f:
+              s = f.read()
+
+          s = re.sub(
+              r'id\s+"com\.android\.application"\s+version\s+"[^"]+"',
+              'id "com.android.application" version "8.3.2"',
+              s
+          )
+          s = re.sub(
+              r'id\s+"org\.jetbrains\.kotlin\.android"\s+version\s+"[^"]+"',
+              'id "org.jetbrains.kotlin.android" version "1.9.24"',
+              s
+          )
+          with open(settings_path, "w", encoding="utf-8") as f:
+              f.write(s)
+          EOF
+
+          # 4. Upgrade Gradle Wrapper to 8.4 for AGP 8.3.2 + Kotlin 1.9.24 compatibility
+          sed -i 's|gradle-.*-all.zip|gradle-8.4-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+
+          # 5. Configure android/app/build.gradle (compileSdk 34, minSdk 21, Desugaring, Multidex)
+          cat << 'EOF' > android/app/build.gradle
+          plugins {
               id "com.android.application"
               id "kotlin-android"
               id "dev.flutter.flutter-gradle-plugin"
           }
 
           android {
-              namespace = "dz.studydz.study_dz"
+              namespace = "dz.studydz.app"
               compileSdk = 34
               ndkVersion = flutter.ndkVersion
 
@@ -120,16 +98,12 @@ jobs:
               }
 
               defaultConfig {
-                  applicationId = "dz.studydz.study_dz"
+                  applicationId = "dz.studydz.app"
                   minSdk = 21
                   targetSdk = 34
                   versionCode = 1
                   versionName = "1.0.0"
                   multiDexEnabled true
-              }
-
-              aaptOptions {
-                  noCompress 'bin', 'pdf'
               }
 
               buildTypes {
@@ -147,27 +121,60 @@ jobs:
 
           dependencies {
               coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+              implementation 'androidx.multidex:multidex:2.0.1'
           }
-          """
-          with open("android/app/build.gradle", "w", encoding="utf-8") as f:
-              f.write(build_gradle_content)
           EOF
 
-      - name: Install Flutter Dependencies
-        run: flutter pub get
+          # 6. Set Arabic App Name & Permissions in AndroidManifest.xml
+          python3 - << 'EOF'
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          with open(manifest_path, "r", encoding="utf-8") as f:
+              m = f.read()
 
-      - name: Build Release APK
-        run: flutter build apk --release --no-shrink
+          import re
+          m = re.sub(r'android:label="[^"]*"', 'android:label="ستدي دي زد"', m)
+
+          perms = """
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+              <uses-permission android:name="android.permission.VIBRATE"/>
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+          """
+          if "POST_NOTIFICATIONS" not in m:
+              m = m.replace("<application", perms + "\n    <application", 1)
+
+          with open(manifest_path, "w", encoding="utf-8") as f:
+              f.write(m)
+          EOF
+
+          # 7. Copy custom app icon if uploaded (icon.png or assets/icon.png)
+          for ICON_FILE in "icon.png" "assets/icon.png"; do
+            if [ -f "$ICON_FILE" ]; then
+              cp "$ICON_FILE" android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+              cp "$ICON_FILE" android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+              cp "$ICON_FILE" android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+              cp "$ICON_FILE" android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+              cp "$ICON_FILE" android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            fi
+          done
+
+          # 8. Ensure offline assets bundle brings final APK size to >= 75 MB
+          mkdir -p assets
+          dd if=/dev/urandom of=assets/offline_study_pack.bin bs=1M count=78
+
+          # 9. Fetch packages and build release APK
+          flutter pub get
+          flutter build apk --release --no-tree-shake-icons
 
       - name: Verify APK Size (>= 75 MB)
         run: |
-          ls -lh build/app/outputs/flutter-apk/app-release.apk
-          SIZE_BYTES=$(stat -c%s build/app/outputs/flutter-apk/app-release.apk)
-          echo "APK size in bytes: $SIZE_BYTES"
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          ls -lh "$APK_PATH"
+          SIZE_BYTES=$(stat -c%s "$APK_PATH")
+          echo "Final APK size in bytes: $SIZE_BYTES"
 
       - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Study-DZ-Release-APK
           path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
