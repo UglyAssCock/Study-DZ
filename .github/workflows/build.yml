@@ -26,11 +26,12 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Generate Clean App Files and Build Release APK
+      - name: Auto-Classify Uploaded Files and Build Release APK
         shell: python
         run: |
           import os
           import re
+          import json
           import shutil
           import subprocess
 
@@ -49,11 +50,11 @@ jobs:
               print("Running:", " ".join(cmd))
               subprocess.run(cmd, check=True)
 
-          # 1. Backup pubspec.yaml
+          # 1. Backup pubspec.yaml and assets
           os.makedirs("/tmp/study_dz_backup", exist_ok=True)
           shutil.copy2("pubspec.yaml", "/tmp/study_dz_backup/pubspec.yaml")
 
-          # 2. Generate Android folder
+          # 2. Generate Android platform folder
           run_cmd([
               "flutter", "create",
               "--platforms=android",
@@ -65,7 +66,122 @@ jobs:
           # 3. Restore pubspec.yaml
           shutil.copy2("/tmp/study_dz_backup/pubspec.yaml", "pubspec.yaml")
 
-          # 4. Fix MainActivity.kt package
+          # 4. Scan assets/ & uploads/ for bulk-uploaded PDFs and Images and auto-classify them
+          os.makedirs("assets", exist_ok=True)
+          if os.path.exists("uploads"):
+              for root, _, files in os.walk("uploads"):
+                  for fname in files:
+                      src = os.path.join(root, fname)
+                      rel = os.path.relpath(src, "uploads")
+                      dst = os.path.join("assets", rel)
+                      os.makedirs(os.path.dirname(dst), exist_ok=True)
+                      shutil.copy2(src, dst)
+
+          level_patterns = [
+              ("1AP", ["1ap", "1_ap", "1ابتدائي", "اولى_ابتدائي", "أولى_ابتدائي"]),
+              ("2AP", ["2ap", "2_ap", "2ابتدائي", "ثانية_ابتدائي"]),
+              ("3AP", ["3ap", "3_ap", "3ابتدائي", "ثالثة_ابتدائي"]),
+              ("4AP", ["4ap", "4_ap", "4ابتدائي", "رابعة_ابتدائي"]),
+              ("5AP", ["5ap", "5_ap", "5eme", "5ابتدائي", "خامسة_ابتدائي", "سانكيام"]),
+              ("1AM", ["1am", "1_am", "1متوسط", "اولى_متوسط", "أولى_متوسط"]),
+              ("2AM", ["2am", "2_am", "2متوسط", "ثانية_متوسط"]),
+              ("3AM", ["3am", "3_am", "3متوسط", "ثالثة_متوسط"]),
+              ("4AM", ["4am", "4_am", "bem", "4متوسط", "رابعة_متوسط", "بيام"]),
+              ("1AS", ["1as", "1_as", "1ثانوي", "اولى_ثانوي", "أولى_ثانوي"]),
+              ("2AS", ["2as", "2_as", "2ثانوي", "ثانية_ثانوي"]),
+              ("3AS", ["3as", "3_as", "bac", "3ثانوي", "ثالثة_ثانوي", "بكالوريا", "باك"]),
+          ]
+
+          subject_patterns = [
+              ("math", ["math", "رياضيات"]),
+              ("arabic", ["arab", "عربي", "عربيه", "عربية", "_ar_"]),
+              ("physics", ["phys", "فيزياء", "فيزيائية"]),
+              ("science", ["sci", "snv", "علوم", "طبيعة", "طبيعه"]),
+              ("french", ["fren", "franc", "فرنسي", "فرنسية", "_fr_"]),
+              ("english", ["engl", "انجليزي", "إنجليزي", "انجليزية", "_en_"]),
+              ("hisgeo", ["his", "geo", "تاريخ", "جغرافيا", "اجتماعيات"]),
+              ("islamic", ["islam", "تربية_اسلامية", "إسلامية", "اسلامية", "شريعة"]),
+              ("civics", ["civ", "مدنية", "مدنيه"]),
+              ("cs", ["info", "informatique", "اعلام", "إعلام", "حاسوب"]),
+              ("philo", ["philo", "فلسفة", "فلسفه"]),
+              ("accounting", ["gest", "compta", "محاسبة", "تسيير"]),
+              ("economy", ["econ", "اقتصاد", "مناجمنت"]),
+              ("law", ["law", "droit", "قانون"]),
+              ("engineering", ["tech", "genie", "هندسة", "تكنولوجيا"]),
+              ("third_lang", ["esp", "allem", "ital", "اسبانية", "ألمانية", "المانية", "ايطالية"]),
+              ("amazigh", ["amaz", "tamaz", "امازيغية", "أمازيغية"]),
+              ("art", ["art", "music", "تشكيلية", "موسيقية", "رسم"]),
+          ]
+
+          category_patterns = [
+              ("books", ["book", "livre", "manuel", "كتاب", "كتب"]),
+              ("exams", ["exam", "sujet", "اختبار", "اختبارات", "امتحان"]),
+              ("tests", ["test", "devoir", "فرض", "فروض"]),
+              ("summaries", ["resum", "summar", "ملخص", "ملخصات"]),
+              ("lessons", ["lesson", "cours", "درس", "دروس"]),
+          ]
+
+          auto_catalog = []
+          all_asset_dirs = set(["assets/"])
+
+          for root, _, files in os.walk("assets"):
+              rel_dir = os.path.relpath(root, ".").replace("\\", "/")
+              if not rel_dir.endswith("/"):
+                  rel_dir += "/"
+              all_asset_dirs.add(rel_dir)
+
+              for fname in sorted(files):
+                  lower = fname.lower()
+                  if fname in ["icon.png", "offline_study_pack.bin", "auto_catalog.json"]:
+                      continue
+                  ext = os.path.splitext(lower)[1]
+                  if ext not in [".pdf", ".png", ".jpg", ".jpeg", ".webp"]:
+                      continue
+
+                  rel_path = os.path.join(root, fname).replace("\\", "/")
+                  search_Token = rel_path.lower()
+
+                  detected_level = "3AS"
+                  for lvl_code, keys in level_patterns:
+                      if any(k in search_Token for k in keys):
+                          detected_level = lvl_code
+                          break
+
+                  detected_subject = "math"
+                  for subj_id, keys in subject_patterns:
+                      if any(k in search_Token for k in keys):
+                          detected_subject = subj_id
+                          break
+
+                  detected_category = "lessons"
+                  for cat_id, keys in category_patterns:
+                      if any(k in search_Token for k in keys):
+                          detected_category = cat_id
+                          break
+
+                  detected_trim = 1
+                  if any(k in search_Token for k in ["t2", "f2", "trim2", "ف2", "فصل2", "ثاني"]):
+                      detected_trim = 2
+                  elif any(k in search_Token for k in ["t3", "f3", "trim3", "ف3", "فصل3", "ثالث"]):
+                      detected_trim = 3
+
+                  clean_title = os.path.splitext(fname)[0].replace("_", " ").replace("-", " ").strip()
+                  file_type = "pdf" if ext == ".pdf" else "image"
+
+                  auto_catalog.append({
+                      "path": rel_path,
+                      "title": clean_title,
+                      "level": detected_level,
+                      "subject": detected_subject,
+                      "trimester": detected_trim,
+                      "category": detected_category,
+                      "type": file_type,
+                  })
+
+          with open("assets/auto_catalog.json", "w", encoding="utf-8") as f:
+              json.dump(auto_catalog, f, ensure_ascii=False, indent=2)
+
+          # 5. Write MainActivity.kt with built-in native Android PdfRenderer so PDFs open offline without external plugin errors
           if os.path.exists("android/app/src/main/kotlin"):
               shutil.rmtree("android/app/src/main/kotlin")
           if os.path.exists("android/app/src/main/java"):
@@ -75,13 +191,86 @@ jobs:
               "android/app/src/main/kotlin/dz/studydz/app/MainActivity.kt",
               r"""package dz.studydz.app
 
+          import android.graphics.Bitmap
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.pdf.PdfRenderer
+          import android.os.ParcelFileDescriptor
+          import io.flutter.FlutterInjector
           import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+          import java.io.ByteArrayOutputStream
+          import java.io.File
+          import java.io.FileOutputStream
 
-          class MainActivity: FlutterActivity()
+          class MainActivity: FlutterActivity() {
+              private val CHANNEL = "dz.studydz.app/pdf"
+
+              private fun copyAssetToCache(assetPath: String): File {
+                  val loader = FlutterInjector.instance().flutterLoader()
+                  val lookupKey = loader.getLookupKeyForAsset(assetPath)
+                  val safeName = assetPath.replace("/", "_")
+                  val outFile = File(cacheDir, safeName)
+                  if (!outFile.exists() || outFile.length() == 0L) {
+                      assets.open(lookupKey).use { input -__GT__
+                          FileOutputStream(outFile).use { output -__GT__
+                              input.copyTo(output)
+                          }
+                      }
+                  }
+                  return outFile
+              }
+
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result -__GT__
+                      try {
+                          when (call.method) {
+                              "getPageCount" -__GT__ {
+                                  val assetPath = call.argument__LT__String__GT__("assetPath") ?: ""
+                                  val file = copyAssetToCache(assetPath)
+                                  val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                                  val renderer = PdfRenderer(pfd)
+                                  val count = renderer.pageCount
+                                  renderer.close()
+                                  pfd.close()
+                                  result.success(count)
+                              }
+                              "renderPage" -__GT__ {
+                                  val assetPath = call.argument__LT__String__GT__("assetPath") ?: ""
+                                  val pageIndex = call.argument__LT__Int__GT__("pageIndex") ?: 0
+                                  val file = copyAssetToCache(assetPath)
+                                  val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                                  val renderer = PdfRenderer(pfd)
+                                  val page = renderer.openPage(pageIndex)
+                                  val width = page.width * 2
+                                  val height = page.height * 2
+                                  val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                  val canvas = Canvas(bitmap)
+                                  canvas.drawColor(Color.WHITE)
+                                  page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                  page.close()
+                                  renderer.close()
+                                  pfd.close()
+
+                                  val stream = ByteArrayOutputStream()
+                                  bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream)
+                                  bitmap.recycle()
+                                  result.success(stream.toByteArray())
+                              }
+                              else -__GT__ result.notImplemented()
+                          }
+                      } catch (e: Exception) {
+                          result.error("PDF_ERR", e.message, null)
+                      }
+                  }
+              }
+          }
           """
           )
 
-          # 5. Write AndroidManifest.xml
+          # 6. Write AndroidManifest.xml
           write_file(
               "android/app/src/main/AndroidManifest.xml",
               r"""__LT__manifest xmlns:android="http://schemas.android.com/apk/res/android"__GT__
@@ -117,11 +306,12 @@ jobs:
           """
           )
 
-          # 6. Write lib/main.dart
+          # 7. Write lib/main.dart
           write_file("lib/main.dart", r'''import 'dart:async';
           import 'dart:convert';
           import 'dart:io';
           import 'package:flutter/material.dart';
+          import 'package:flutter/services.dart';
 
           import 'screens/onboarding_screen.dart';
           import 'screens/home_shell.dart';
@@ -280,18 +470,21 @@ jobs:
             bool isGoogleSignedIn = false;
             String accountName = '';
             String accountEmail = '';
-            String languageCode = 'ar'; // 'ar', 'fr', 'en'
+            String languageCode = 'ar';
             bool isDarkMode = false;
 
             List__LT__StudentProfile__GT__ profiles = [];
             int activeProfileIndex = 0;
+
+            // Holds user-uploaded PDFs and Images auto-indexed during build
+            List__LT__Map__LT__String, dynamic__GT____GT__ uploadedFiles = [];
 
             static const List__LT__Map__LT__String, String__GT____GT__ allLevels = [
               {'code': '1AP', 'ar': 'السنة الأولى ابتدائي (1AP)', 'fr': '1ère Année Primaire (1AP)', 'en': '1st Year Primary (1AP)', 'cycle': 'primaire'},
               {'code': '2AP', 'ar': 'السنة الثانية ابتدائي (2AP)', 'fr': '2ème Année Primaire (2AP)', 'en': '2nd Year Primary (2AP)', 'cycle': 'primaire'},
               {'code': '3AP', 'ar': 'السنة الثالثة ابتدائي (3AP)', 'fr': '3ème Année Primaire (3AP)', 'en': '3rd Year Primary (3AP)', 'cycle': 'primaire'},
               {'code': '4AP', 'ar': 'السنة الرابعة ابتدائي (4AP)', 'fr': '4ème Année Primaire (4AP)', 'en': '4th Year Primary (4AP)', 'cycle': 'primaire'},
-              {'code': '5AP', 'ar': 'السنة الخامسة ابتدائي - السانكيام (5AP)', 'fr': '5ème Année Primaire (5AP)', 'en': '5th Year Primary - 5ème (5AP)', 'cycle': 'primaire'},
+              {'code': '5AP', 'ar': 'السنة الخامسة ابتدائي - السانكيام (5AP)', 'fr': '5ème Année Primaire (5AP)', 'en': '5th Year Primary (5AP)', 'cycle': 'primaire'},
               {'code': '1AM', 'ar': 'السنة الأولى متوسط (1AM)', 'fr': '1ère Année Moyenne (1AM)', 'en': '1st Year Middle School (1AM)', 'cycle': 'moyen'},
               {'code': '2AM', 'ar': 'السنة الثانية متوسط (2AM)', 'fr': '2ème Année Moyenne (2AM)', 'en': '2nd Year Middle School (2AM)', 'cycle': 'moyen'},
               {'code': '3AM', 'ar': 'السنة الثالثة متوسط (3AM)', 'fr': '3ème Année Moyenne (3AM)', 'en': '3rd Year Middle School (3AM)', 'cycle': 'moyen'},
@@ -307,12 +500,12 @@ jobs:
             ];
 
             static const List__LT__Map__LT__String, String__GT____GT__ streams2AS3AS = [
-              {'code': 'SE', 'ar': 'علوم تجريبية', 'fr': 'Sciences Expérimentales', 'en': 'Experimental Sciences'},
-              {'code': 'MATH', 'ar': 'رياضيات', 'fr': 'Mathématiques', 'en': 'Mathematics'},
-              {'code': 'TM', 'ar': 'تقني رياضي', 'fr': 'Technique Mathématique', 'en': 'Technical Mathematics'},
-              {'code': 'GE', 'ar': 'تسيير واقتصاد', 'fr': 'Gestion et Économie', 'en': 'Management & Economics'},
-              {'code': 'LP', 'ar': 'آداب وفلسفة', 'fr': 'Lettres et Philosophie', 'en': 'Literature & Philosophy'},
-              {'code': 'LE', 'ar': 'لغات أجنبية', 'fr': 'Langues Étrangères', 'en': 'Foreign Languages'},
+              {'code': 'SE', 'ar': 'شعبة علوم تجريبية', 'fr': 'Sciences Expérimentales', 'en': 'Experimental Sciences'},
+              {'code': 'MATH', 'ar': 'شعبة رياضيات', 'fr': 'Mathématiques', 'en': 'Mathematics'},
+              {'code': 'TM', 'ar': 'شعبة تقني رياضي', 'fr': 'Technique Mathématique', 'en': 'Technical Mathematics'},
+              {'code': 'GE', 'ar': 'شعبة تسيير واقتصاد', 'fr': 'Gestion et Économie', 'en': 'Management & Economics'},
+              {'code': 'LP', 'ar': 'شعبة آداب وفلسفة', 'fr': 'Lettres et Philosophie', 'en': 'Literature & Philosophy'},
+              {'code': 'LE', 'ar': 'شعبة لغات أجنبية', 'fr': 'Langues Étrangères', 'en': 'Foreign Languages'},
             ];
 
             static const Map__LT__String, Map__LT__String, String__GT____GT__ subjectCatalog = {
@@ -320,7 +513,7 @@ jobs:
               'math': {'ar': 'الرياضيات', 'fr': 'Mathématiques', 'en': 'Mathematics', 'emoji': '🧮'},
               'physics': {'ar': 'العلوم الفيزيائية والتكنولوجيا', 'fr': 'Sciences Physiques', 'en': 'Physical Sciences', 'emoji': '⚗️'},
               'science': {'ar': 'علوم الطبيعة والحياة', 'fr': 'Sciences de la Nature et de la Vie', 'en': 'Natural & Life Sciences', 'emoji': '🌿'},
-              'islamic': {'ar': 'التربية الإسلامية', 'fr': 'Éducation Islamique', 'en': 'Islamic Education', 'emoji': '🕌'},
+              'islamic': {'ar': 'التربية الإسلامية / العلوم الإسلامية', 'fr': 'Sciences Islamiques', 'en': 'Islamic Education', 'emoji': '🕌'},
               'hisgeo': {'ar': 'التاريخ والجغرافيا', 'fr': 'Histoire et Géographie', 'en': 'History & Geography', 'emoji': '🌍'},
               'civics': {'ar': 'التربية المدنية', 'fr': 'Éducation Civique', 'en': 'Civic Education', 'emoji': '⚖️'},
               'french': {'ar': 'اللغة الفرنسية', 'fr': 'Langue Française', 'en': 'French Language', 'emoji': '🗼'},
@@ -330,9 +523,11 @@ jobs:
               'accounting': {'ar': 'التسيير المحاسبي والمالي', 'fr': 'Gestion Comptable et Financière', 'en': 'Accounting & Finance', 'emoji': '📊'},
               'economy': {'ar': 'الاقتصاد والمناجمنت', 'fr': 'Économie et Management', 'en': 'Economics & Management', 'emoji': '📈'},
               'law': {'ar': 'القانون', 'fr': 'Droit', 'en': 'Law', 'emoji': '📜'},
-              'engineering': {'ar': 'الهندسة والتكنولوجيا', 'fr': 'Génie & Technologie', 'en': 'Engineering & Tech', 'emoji': '⚙️'},
+              'engineering': {'ar': 'التكنولوجيا (هندسة مدنية/ميكانيكية/كهربائية/طرائق)', 'fr': 'Technologie (Génie)', 'en': 'Engineering Technology', 'emoji': '⚙️'},
               'third_lang': {'ar': 'اللغة الأجنبية الثالثة (إسبانية/ألمانية/إيطالية)', 'fr': '3ème Langue Étrangère', 'en': 'Third Foreign Language', 'emoji': '🗣️'},
               'amazigh': {'ar': 'اللغة الأمازيغية', 'fr': 'Langue Amazighe', 'en': 'Amazigh Language', 'emoji': 'ⵣ'},
+              'art': {'ar': 'التربية التشكيلية / الموسيقية', 'fr': 'Éducation Artistique / Musicale', 'en': 'Art / Music Education', 'emoji': '🎨'},
+              'sport': {'ar': 'التربية البدنية والرياضية', 'fr': 'Éducation Physique et Sportive', 'en': 'Physical Education', 'emoji': '🏃'},
             };
 
             StudentProfile get currentProfile {
@@ -385,80 +580,96 @@ jobs:
               return subjectCatalog[id]?['emoji'] ?? '📘';
             }
 
-            // Returns the exact map of {subjectId: coefficient} for any level and stream
-            Map__LT__String, int__GT__ getCoefficientsForLevel(String levelCode, String streamCode) {
+            // Exact eddirasa.com / Ministry of National Education subject coefficients per level & stream
+            Map__LT__String, int__GT__ getCoefficientsForLevel(
+              String levelCode,
+              String streamCode, {
+              bool includeSport = true,
+              bool includeAmazigh = false,
+              bool includeArt = false,
+            }) {
+              Map__LT__String, int__GT__ base;
               switch (levelCode) {
                 case '1AP':
                 case '2AP':
-                  return {
+                  base = {
                     'arabic': 1,
                     'math': 1,
                     'islamic': 1,
                     'science': 1,
                     'civics': 1,
+                    if (includeArt) 'art': 1,
+                    if (includeSport) 'sport': 1,
                   };
+                  break;
                 case '3AP':
-                  return {
-                    'arabic': 2,
-                    'math': 2,
+                  base = {
+                    'arabic': 1,
+                    'math': 1,
                     'french': 1,
                     'english': 1,
                     'islamic': 1,
                     'science': 1,
                     'hisgeo': 1,
                     'civics': 1,
+                    if (includeAmazigh) 'amazigh': 1,
+                    if (includeArt) 'art': 1,
+                    if (includeSport) 'sport': 1,
                   };
+                  break;
                 case '4AP':
-                  return {
-                    'arabic': 3,
-                    'math': 3,
-                    'french': 2,
+                case '5AP':
+                  base = {
+                    'arabic': 1,
+                    'math': 1,
+                    'french': 1,
                     'english': 1,
-                    'science': 2,
+                    'science': 1,
                     'islamic': 1,
                     'hisgeo': 1,
                     'civics': 1,
+                    if (includeAmazigh) 'amazigh': 1,
+                    if (includeArt) 'art': 1,
+                    if (includeSport) 'sport': 1,
                   };
-                case '5AP':
-                  return {
-                    'arabic': 4,
-                    'math': 4,
-                    'french': 2,
-                    'english': 1,
-                    'science': 2,
-                    'islamic': 1,
-                    'hisgeo': 2,
-                    'civics': 1,
-                  };
+                  break;
                 case '1AM':
-                  return {
+                  base = {
                     'arabic': 2,
                     'math': 2,
+                    'hisgeo': 2,
+                    'french': 1,
+                    'english': 1,
                     'physics': 1,
                     'science': 1,
-                    'french': 1,
-                    'english': 1,
-                    'hisgeo': 2,
                     'islamic': 1,
                     'civics': 1,
                     'cs': 1,
+                    if (includeArt) 'art': 1,
+                    if (includeSport) 'sport': 1,
+                    if (includeAmazigh) 'amazigh': 2,
                   };
+                  break;
                 case '2AM':
                 case '3AM':
-                  return {
+                  base = {
                     'arabic': 3,
                     'math': 3,
+                    'french': 2,
+                    'hisgeo': 2,
                     'physics': 2,
                     'science': 2,
-                    'french': 2,
                     'english': 1,
-                    'hisgeo': 2,
                     'islamic': 1,
                     'civics': 1,
                     'cs': 1,
+                    if (includeArt) 'art': 1,
+                    if (includeSport) 'sport': 1,
+                    if (includeAmazigh) 'amazigh': 2,
                   };
+                  break;
                 case '4AM':
-                  return {
+                  base = {
                     'arabic': 5,
                     'math': 4,
                     'french': 3,
@@ -469,37 +680,51 @@ jobs:
                     'islamic': 2,
                     'civics': 1,
                     'cs': 1,
+                    if (includeArt) 'art': 1,
+                    if (includeSport) 'sport': 1,
+                    if (includeAmazigh) 'amazigh': 2,
                   };
+                  break;
                 case '1AS':
                   if (streamCode == 'TC_L') {
-                    return {
+                    base = {
                       'arabic': 5,
                       'hisgeo': 3,
                       'french': 3,
                       'english': 3,
                       'islamic': 2,
                       'math': 2,
-                      'science': 1,
-                      'cs': 1,
+                      'science': 2,
+                      'physics': 2,
+                      'cs': 2,
+                      if (includeArt) 'art': 1,
+                      if (includeSport) 'sport': 1,
+                      if (includeAmazigh) 'amazigh': 2,
+                    };
+                  } else {
+                    base = {
+                      'math': 5,
+                      'physics': 4,
+                      'science': 4,
+                      'arabic': 3,
+                      'french': 2,
+                      'english': 2,
+                      'hisgeo': 2,
+                      'islamic': 2,
+                      'cs': 2,
+                      'engineering': 2,
+                      if (includeArt) 'art': 1,
+                      if (includeSport) 'sport': 1,
+                      if (includeAmazigh) 'amazigh': 2,
                     };
                   }
-                  return {
-                    'math': 5,
-                    'physics': 4,
-                    'science': 4,
-                    'arabic': 3,
-                    'french': 2,
-                    'english': 2,
-                    'hisgeo': 2,
-                    'islamic': 2,
-                    'cs': 2,
-                  };
+                  break;
                 case '2AS':
                 case '3AS':
                 default:
                   final is3AS = levelCode == '3AS';
                   if (streamCode == 'MATH') {
-                    return {
+                    base = {
                       'math': 7,
                       'physics': 6,
                       'arabic': 3,
@@ -509,10 +734,11 @@ jobs:
                       'english': 2,
                       'islamic': 2,
                       if (is3AS) 'philo': 2,
+                      if (includeSport) 'sport': 1,
+                      if (includeAmazigh) 'amazigh': 2,
                     };
-                  }
-                  if (streamCode == 'TM') {
-                    return {
+                  } else if (streamCode == 'TM') {
+                    base = {
                       'engineering': 6,
                       'math': 6,
                       'physics': 6,
@@ -522,10 +748,11 @@ jobs:
                       'english': 2,
                       'islamic': 2,
                       if (is3AS) 'philo': 2,
+                      if (includeSport) 'sport': 1,
+                      if (includeAmazigh) 'amazigh': 2,
                     };
-                  }
-                  if (streamCode == 'GE') {
-                    return {
+                  } else if (streamCode == 'GE') {
+                    base = {
                       'accounting': is3AS ? 6 : 5,
                       'economy': 5,
                       'math': 5,
@@ -536,10 +763,11 @@ jobs:
                       'english': 2,
                       'islamic': 2,
                       if (is3AS) 'philo': 2,
+                      if (includeSport) 'sport': 1,
+                      if (includeAmazigh) 'amazigh': 2,
                     };
-                  }
-                  if (streamCode == 'LP') {
-                    return {
+                  } else if (streamCode == 'LP') {
+                    base = {
                       'arabic': 6,
                       'philo': is3AS ? 6 : 5,
                       'hisgeo': 4,
@@ -547,10 +775,11 @@ jobs:
                       'english': 3,
                       'islamic': 2,
                       'math': 2,
+                      if (includeSport) 'sport': 1,
+                      if (includeAmazigh) 'amazigh': 2,
                     };
-                  }
-                  if (streamCode == 'LE') {
-                    return {
+                  } else if (streamCode == 'LE') {
+                    base = {
                       'arabic': 5,
                       'french': 5,
                       'english': 5,
@@ -559,180 +788,60 @@ jobs:
                       'islamic': 2,
                       'math': 2,
                       if (is3AS) 'philo': 2,
+                      if (includeSport) 'sport': 1,
+                      if (includeAmazigh) 'amazigh': 2,
+                    };
+                  } else {
+                    // SE (علوم تجريبية)
+                    base = {
+                      'science': 6,
+                      'math': 5,
+                      'physics': 5,
+                      'arabic': 3,
+                      'hisgeo': 2,
+                      'french': 2,
+                      'english': 2,
+                      'islamic': 2,
+                      if (is3AS) 'philo': 2,
+                      if (includeSport) 'sport': 1,
+                      if (includeAmazigh) 'amazigh': 2,
                     };
                   }
-                  // Default: SE (علوم تجريبية)
-                  return {
-                    'science': 6,
-                    'math': 5,
-                    'physics': 5,
-                    'arabic': 3,
-                    'hisgeo': 2,
-                    'french': 2,
-                    'english': 2,
-                    'islamic': 2,
-                    if (is3AS) 'philo': 2,
-                  };
+                  break;
               }
+              return base;
             }
 
-            // Generates structured items for any level, subject, trimester (1..3), and category
-            List__LT__Map__LT__String, String__GT____GT__ getStudyItems({
+            // Returns only the real uploaded files (PDFs & Images) matching the selected level, subject, trimester, and category
+            List__LT__Map__LT__String, dynamic__GT____GT__ getUploadedStudyItems({
               required String levelCode,
               required String subjectId,
               required int trimester,
-              required String category, // 'lessons', 'summaries', 'tests', 'exams'
+              required String category, // 'lessons', 'summaries', 'tests', 'exams', 'books'
             }) {
-              final subjAr = subjectCatalog[subjectId]?['ar'] ?? subjectId;
-              final lvlName = levelCode;
-              final trimName = trimester == 1
-                  ? 'الفصل الأول'
-                  : trimester == 2
-                      ? 'الفصل الثاني'
-                      : 'الفصل الثالث';
-
-              if (category == 'lessons') {
-                return [
-                  {
-                    'title': 'الدرس 1 في $subjAr - $trimName ($lvlName)',
-                    'subtitle': 'شرح مفصل للوحدة الأولى مع أمثلة تطبيقية وفق المنهاج الوزاري',
-                    'body': '📚 الدرس الأول: مدخل ومفاهيم أساسية في مادة $subjAr ($lvlName - $trimName)\n\n'
-                        '1. تعريف ومفاهيم قاعدية:\n'
-                        'يتناول هذا الدرس القواعد الأساسية المقررة في التدرج السنوي الرسمي لوزارة التربية الوطنية الجزائرية للمستوى $lvlName.\n\n'
-                        '2. القوانين والخطوات المنهجية:\n'
-                        '• قراءة المعطيات بدقة واستخراج الكلمات المفتاحية.\n'
-                        '• تطبيق القاعدة أو العلاقة الأساسية خطوة بخطوة.\n'
-                        '• كتابة الاستنتاج النهائي بلغة سليمة ومنظمة.\n\n'
-                        '3. تمرين تطبيقي محلول:\n'
-                        'سؤال: طبّق ما درسته في هذه الوحدة على وضعية نموذجية.\n'
-                        'الإجابة النموذجية: نكتب المعطيات أولاً ثم نبرهن على النتيجة باستعمال خواص الدرس.',
-                  },
-                  {
-                    'title': 'الدرس 2 في $subjAr - $trimName ($lvlName)',
-                    'subtitle': 'تعمق وتطبيقات شاملة حول المقطع الثاني',
-                    'body': '📚 الدرس الثاني في $subjAr ($lvlName - $trimName)\n\n'
-                        '• عناصر الدرس:\n'
-                        '1) التحليل والاستنتاج المنهجي.\n'
-                        '2) الربط بين المفاهيم النظرية والتمارين التطبيقية.\n'
-                        '3) أهم الأسئلة المتكررة في الفروض والاختبارات الفصلية حول هذا المقطع.',
-                  },
-                  {
-                    'title': 'الدرس 3 في $subjAr - $trimName ($lvlName)',
-                    'subtitle': 'الوضعيات الإدماجية الشاملة للمقطع الثالث',
-                    'body': '📚 الدرس الثالث: منهجية حل الوضعيات الإدماجية في $subjAr ($lvlName - $trimName)\n\n'
-                        '• شبكة التقييم الرسمية:\n'
-                        '- الوجاهة (الالتزام بالمطلوب).\n'
-                        '- الاستعمال السليم لأدوات المادة.\n'
-                        '- الانسجام وجودة العرض.',
-                  },
-                ];
-              } else if (category == 'summaries') {
-                return [
-                  {
-                    'title': 'ملخص شامل رقم 1 في $subjAr - $trimName ($lvlName)',
-                    'subtitle': 'جميع القوانين والتعاريف المهمة في ورقة واحدة للمراجعة السريعة',
-                    'body': '📝 الملخص المركز لمادة $subjAr ($lvlName - $trimName)\n\n'
-                        '✅ أهم النقاط التي يجب حفظها وفهمها قبل الفرض والاختبار:\n'
-                        '1. القواعد الأساسية والتعاريف الاصطلاحية مضبوطة.\n'
-                        '2. المخطط الذهني لربط وحدات $trimName.\n'
-                        '3. تنبيهات حول الأخطاء الشائعة التي يقع فيها التلاميذ يوم الامتحان وكيفية تفاديها.',
-                  },
-                  {
-                    'title': 'ملخص المراجعة النهائية في $subjAr - $trimName ($lvlName)',
-                    'subtitle': 'مخططات ذهنية وبطاقات مراجعة مركزة',
-                    'body': '📌 بطاقة المراجعة النهائية ($subjAr - $lvlName - $trimName):\n\n'
-                        '• القاعدة 1 ⬅️ التطبيق المباشر.\n'
-                        '• القاعدة 2 ⬅️ الحالات الخاصة والاستثناءات.\n'
-                        '• منهجية الإجابة النموذجية لكسب العلامة الكاملة 20/20.',
-                  },
-                ];
-              } else if (category == 'tests') {
-                return [
-                  {
-                    'title': 'الفرض المحروس الأول في $subjAr - $trimName ($lvlName)',
-                    'subtitle': 'موضوع الفرض مرفق بالتصحيح النموذجي وسلم التنقيط',
-                    'body': '📄 الفرض المحروس الأول للثلاثي ($trimName) في مادة $subjAr - المستوى $lvlName\n'
-                        'المدة: ساعة واحدة (1 سا)\n\n'
-                        '--- [ الموضوع ] ---\n'
-                        'التمرين الأول (06 نقاط):\n'
-                        'أجب بوضوح عن الأسئلة المباشرة المتعلقة بالوحدة الأولى مع التعليل.\n\n'
-                        'التمرين الثاني (06 نقاط):\n'
-                        'حلل المعطيات التالية واستنتج العلاقة المطلوبة.\n\n'
-                        'الوضعية الإدماجية (08 نقاط):\n'
-                        'اعتماداً على السندات ومكتسباتك القبلية في $trimName، أجب عن التعليمات الثلاث.\n\n'
-                        '--- [ التصحيح النموذجي وسلم التنقيط ] ---\n'
-                        '• حل التمرين الأول (6 ن): 2 ن لكل إجابة معللة.\n'
-                        '• حل التمرين الثاني (6 ن): الطريقة الصحيحة (3 ن) + النتيجة النهائية (3 ن).\n'
-                        '• حل الوضعية الإدماجية (8 ن): احترام المنهجية وتوظيف المكتسبات.',
-                  },
-                  {
-                    'title': 'الفرض المحروس الثاني في $subjAr - $trimName ($lvlName)',
-                    'subtitle': 'نموذج مقترح للمراجعة والتحضير الجيد مع الحل المفصل',
-                    'body': '📄 الفرض المحروس الثاني ($trimName) - مادة $subjAr ($lvlName)\n\n'
-                        'يتضمن هذا النموذج تمارين شاملة لوحدات $trimName مرفقة بالحل المفصل خطوة بخطوة.',
-                  },
-                ];
-              } else {
-                return [
-                  {
-                    'title': 'اختبار $trimName في مادة $subjAr ($lvlName) - النموذج 1',
-                    'subtitle': 'موضوع اختبار رسمي كامل مع الحل النموذجي المفصل',
-                    'body': '🏆 الاختبار الفصلي ($trimName) في مادة $subjAr - المستوى: $lvlName\n\n'
-                        '--- [ نص موضوع الاختبار ] ---\n'
-                        'الجزء الأول (12 نقطة):\n'
-                        '• التمرين الأول (06 نقاط): أسئلة الفهم والاستيعاب وتطبيق القواعد الأساسية.\n'
-                        '• التمرين الثاني (06 نقاط): دراسة تحليلية وحسابية شاملة.\n\n'
-                        'الجزء الثاني: الوضعية الإدماجية المستهدفة (08 نقاط):\n'
-                        'سياق الوضعية + السندات + التعليمات.\n\n'
-                        '--- [ الإجابة النموذجية وسلم التنقيط الرسمي ] ---\n'
-                        '1. إجابة التمرين الأول (06 نقاط): خطوات الحل مفصلة مع توزيع النقاط.\n'
-                        '2. إجابة التمرين الثاني (06 نقاط): البرهان الكامل والنتائج المؤطرة.\n'
-                        '3. شبكة تقييم الوضعية الإدماجية (08 نقاط).',
-                  },
-                  {
-                    'title': 'اختبار $trimName في مادة $subjAr ($lvlName) - النموذج 2 المقترح',
-                    'subtitle': 'موضوع شامل للامتحانات الرسمية مرفق بالتصحيح',
-                    'body': '🏆 النموذج الثاني المقترح لاختبار $trimName في $subjAr ($lvlName)\n\n'
-                        'موضوع تدريبي ممتاز يحاكي الامتحانات الرسمية والوطنية مع التصحيح النموذجي الكامل.',
-                  },
-                ];
-              }
+              return uploadedFiles.where((f) {
+                final sameLevel = (f['level']?.toString().toUpperCase() ?? '') == levelCode.toUpperCase();
+                final sameSubj = (f['subject']?.toString() ?? '') == subjectId;
+                final sameCat = (f['category']?.toString() ?? '') == category;
+                if (!sameLevel || !sameSubj || !sameCat) return false;
+                if (category == 'books') return true; // Books appear in all trimesters
+                final fTrim = int.tryParse(f['trimester']?.toString() ?? '1') ?? 1;
+                return fTrim == trimester;
+              }).toList();
             }
 
-            List__LT__Map__LT__String, String__GT____GT__ searchAllContent(String query) {
+            List__LT__Map__LT__String, dynamic__GT____GT__ searchAllContent(String query) {
               final q = query.trim().toLowerCase();
               if (q.isEmpty) return [];
-              final results = __LT__Map__LT__String, String__GT____GT__[];
+              final results = __LT__Map__LT__String, dynamic__GT____GT__[];
 
-              for (final lvl in allLevels) {
-                final lvlCode = lvl['code']!;
-                final coeffs = getCoefficientsForLevel(lvlCode, 'SE');
-                for (final subjId in coeffs.keys) {
-                  final subjAr = subjectCatalog[subjId]?['ar'] ?? '';
-                  final subjFr = subjectCatalog[subjId]?['fr'] ?? '';
-                  if (subjAr.toLowerCase().contains(q) ||
-                      subjFr.toLowerCase().contains(q) ||
-                      lvlCode.toLowerCase().contains(q) ||
-                      'درس'.contains(q) ||
-                      'ملخص'.contains(q) ||
-                      'فرض'.contains(q) ||
-                      'اختبار'.contains(q)) {
-                    for (int trim = 1; trim __LT__= 3; trim++) {
-                      final items = getStudyItems(
-                        levelCode: lvlCode,
-                        subjectId: subjId,
-                        trimester: trim,
-                        category: 'lessons',
-                      );
-                      final first = items.first;
-                      results.add({
-                        'title': first['title']!,
-                        'subtitle': '${lvl['ar']} • $subjAr',
-                        'body': first['body']!,
-                      });
-                      if (results.length __GT__= 25) return results;
-                    }
-                  }
+              for (final f in uploadedFiles) {
+                final title = (f['title'] ?? '').toString().toLowerCase();
+                final lvl = (f['level'] ?? '').toString().toLowerCase();
+                final subj = (f['subject'] ?? '').toString();
+                final subjAr = (subjectCatalog[subj]?['ar'] ?? '').toLowerCase();
+                if (title.contains(q) || lvl.contains(q) || subjAr.contains(q)) {
+                  results.add(f);
                 }
               }
               return results;
@@ -750,14 +859,25 @@ jobs:
                     if (!await dir.exists()) {
                       await dir.create(recursive: true);
                     }
-                    return File('${dir.path}/study_dz_v2_state.json');
+                    return File('${dir.path}/study_dz_v3_state.json');
                   }
                 }
               } catch (_) {}
-              return File('${Directory.systemTemp.path}/study_dz_v2_state.json');
+              return File('${Directory.systemTemp.path}/study_dz_v3_state.json');
             }
 
             Future__LT__void__GT__ initialize() async {
+              try {
+                final rawCatalog = await rootBundle.loadString('assets/auto_catalog.json');
+                final decoded = jsonDecode(rawCatalog);
+                if (decoded is List) {
+                  uploadedFiles = decoded
+                      .whereType__LT__Map__GT__()
+                      .map((e) =__GT__ Map__LT__String, dynamic__GT__.from(e))
+                      .toList();
+                }
+              } catch (_) {}
+
               try {
                 final file = await _resolveStorageFile();
                 if (await file.exists()) {
@@ -822,7 +942,7 @@ jobs:
           }
           ''')
 
-          # 7. Write lib/screens/onboarding_screen.dart (with Google Sign-In, Male/Female choice, and Level setup)
+          # 8. Write lib/screens/onboarding_screen.dart
           write_file("lib/screens/onboarding_screen.dart", r'''import 'package:flutter/material.dart';
           import '../main.dart';
 
@@ -835,7 +955,7 @@ jobs:
 
           class _OnboardingScreenState extends State__LT__OnboardingScreen__GT__ {
             final _nameCtrl = TextEditingController(text: 'الوليد');
-            String _selectedGender = 'male'; // 'male' or 'female'
+            String _selectedGender = 'male';
             String _selectedLevel = '3AS';
             String _selectedStream = 'SE';
 
@@ -1017,8 +1137,8 @@ jobs:
                           Text(
                             ctrl.tr(
                               'بوابتك التعليمية الشاملة للابتدائي والمتوسط والثانوي في الجزائر',
-                              'Votre portail éducatif complet en Algérie (Primaire, Moyen, Secondaire)',
-                              'Your complete educational portal in Algeria (Primary, Middle, High School)',
+                              'Votre portail éducatif complet en Algérie',
+                              'Your complete educational portal in Algeria',
                             ),
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.white, fontSize: 14.5),
@@ -1205,7 +1325,7 @@ jobs:
           }
           ''')
 
-          # 8. Write lib/screens/home_shell.dart (Exact new design matching screenshot + Drawer + Hierarchical Navigation)
+          # 9. Write lib/screens/home_shell.dart (With Calculator Icon Badge on Average Calculator Card)
           write_file("lib/screens/home_shell.dart", r'''import 'package:flutter/material.dart';
           import '../main.dart';
           import 'subjects_screen.dart';
@@ -1228,7 +1348,6 @@ jobs:
               final profile = ctrl.currentProfile;
               final avatarEmoji = profile.gender == 'female' ? '👧🏻' : '👦🏻';
 
-              // Force physical top-left for 3 lines (☰) and top-right for search (🔍) regardless of RTL/LTR
               return Scaffold(
                 key: _scaffoldKey,
                 drawer: const AppDrawerMenu(),
@@ -1276,7 +1395,7 @@ jobs:
                 body: ListView(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
                   children: [
-                    // Green Welcome Header Banner matching screenshot
+                    // Green Welcome Header Banner
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
                       decoration: BoxDecoration(
@@ -1428,11 +1547,25 @@ jobs:
                     ),
                     const SizedBox(height: 16),
 
-                    // Card 4: حاسبة المعدل
+                    // Card 4: حاسبة المعدل with realistic Green Calculator Icon
                     _MainCategoryCard(
                       title: ctrl.tr('حاسبة المعدل', 'Calculateur de Moyenne', 'Average Calculator'),
                       subtitle: ctrl.tr('احسب معدلك', 'Calculez votre moyenne', 'Calculate your GPA'),
-                      iconWidget: const _BadgeIllustration(emoji: '🖩', bgColor: Color(0xFFE8F5E9)),
+                      iconWidget: Container(
+                        width: 68,
+                        height: 68,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F5E9),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.calculate_rounded,
+                            size: 46,
+                            color: Color(0xFF147A42),
+                          ),
+                        ),
+                      ),
                       onTap: () {
                         Navigator.push(
                           context,
@@ -1671,9 +1804,17 @@ jobs:
               final ctrl = AppScope.of(context);
               final results = ctrl.searchAllContent(_query);
 
+              final q = _query.trim().toLowerCase();
+              final matchedLevels = AppController.allLevels.where((l) {
+                return q.isNotEmpty &&
+                    (l['code']!.toLowerCase().contains(q) ||
+                        l['ar']!.toLowerCase().contains(q) ||
+                        l['fr']!.toLowerCase().contains(q));
+              }).toList();
+
               return Scaffold(
                 appBar: AppBar(
-                  title: Text(ctrl.tr('البحث الشامل في التطبيق', 'Recherche globale', 'Global Search')),
+                  title: Text(ctrl.tr('البحث السريع', 'Recherche rapide', 'Quick Search')),
                 ),
                 body: Column(
                   children: [
@@ -1683,9 +1824,9 @@ jobs:
                         autofocus: true,
                         decoration: InputDecoration(
                           hintText: ctrl.tr(
-                            'ابحث عن مادة، درس، ملخص، فرض أو سنة (مثال: رياضيات، 4AM، 3AS)...',
-                            'Rechercher une matière, un cours ou un niveau...',
-                            'Search subject, lesson, summary or level...',
+                            'ابحث عن ملف مرفوع أو سنة دراسية (مثال: 4AM، 3AS، رياضيات)...',
+                            'Rechercher un fichier ou un niveau...',
+                            'Search uploaded file or grade level...',
                           ),
                           prefixIcon: const Icon(Icons.search, color: Color(0xFF147A42)),
                           filled: true,
@@ -1698,62 +1839,70 @@ jobs:
                       ),
                     ),
                     Expanded(
-                      child: _query.trim().isEmpty
+                      child: q.isEmpty
                           ? Center(
                               child: Padding(
                                 padding: const EdgeInsets.all(24),
                                 child: Text(
                                   ctrl.tr(
-                                    'اكتب اسم المادة (مثل: الرياضيات، الفيزياء، العربية) أو المستوى (مثل: 4AM، 3AS) للوصول الفوري إلى الدروس والفروض والاختبارات.',
-                                    'Tapez le nom d\'une matière ou d\'un niveau.',
-                                    'Type a subject name or grade level to search.',
+                                    'اكتب اسم الملف أو السنة الدراسية للوصول السريع.',
+                                    'Tapez le nom du fichier ou du niveau.',
+                                    'Type a file name or level to search.',
                                   ),
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(fontSize: 15),
                                 ),
                               ),
                             )
-                          : results.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    ctrl.tr('لا توجد نتائج مطابقة.', 'Aucun résultat trouvé.', 'No matching results.'),
-                                  ),
-                                )
-                              : ListView.builder(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                                  itemCount: results.length,
-                                  itemBuilder: (ctx, idx) {
-                                    final item = results[idx];
-                                    return Card(
-                                      margin: const EdgeInsets.only(bottom: 10),
-                                      child: ListTile(
-                                        leading: const CircleAvatar(
-                                          backgroundColor: Color(0xFF147A42),
-                                          foregroundColor: Colors.white,
-                                          child: Icon(Icons.menu_book),
-                                        ),
-                                        title: Text(
-                                          item['title']!,
-                                          style: const TextStyle(fontWeight: FontWeight.bold),
-                                        ),
-                                        subtitle: Text(item['subtitle']!),
-                                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                                        onTap: () {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) =__GT__ ContentReaderPage(
-                                                title: item['title']!,
-                                                subtitle: item['subtitle']!,
-                                                body: item['body']!,
-                                              ),
-                                            ),
-                                          );
-                                        },
+                          : ListView(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              children: [
+                                for (final lvl in matchedLevels)
+                                  Card(
+                                    child: ListTile(
+                                      leading: const CircleAvatar(
+                                        backgroundColor: Color(0xFF147A42),
+                                        foregroundColor: Colors.white,
+                                        child: Icon(Icons.school),
                                       ),
-                                    );
-                                  },
-                                ),
+                                      title: Text(ctrl.tr(lvl['ar']!, lvl['fr']!, lvl['en'])),
+                                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =__GT__ LevelSubjectsPage(levelCode: lvl['code']!),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                for (final f in results)
+                                  Card(
+                                    child: ListTile(
+                                      leading: Icon(
+                                        f['type'] == 'pdf' ? Icons.picture_as_pdf : Icons.image,
+                                        color: const Color(0xFF147A42),
+                                        size: 30,
+                                      ),
+                                      title: Text(
+                                        f['title']?.toString() ?? '',
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      subtitle: Text(
+                                        '${f['level']} • ${ctrl.subjectTitle(f['subject']?.toString() ?? 'math')}',
+                                      ),
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =__GT__ FileViewerPage(fileItem: f),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
                     ),
                   ],
                 ),
@@ -1762,8 +1911,10 @@ jobs:
           }
           ''')
 
-          # 9. Write lib/screens/subjects_screen.dart (Cycle -> Levels -> Subjects -> Trimesters -> Lessons/Summaries/Tests/Exams)
-          write_file("lib/screens/subjects_screen.dart", r'''import 'package:flutter/material.dart';
+          # 10. Write lib/screens/subjects_screen.dart (5 Folders: الدروس، الملخصات، الفروض، الاختبارات، الكتب + Native PDF/Image Viewer)
+          write_file("lib/screens/subjects_screen.dart", r'''import 'dart:typed_data';
+          import 'package:flutter/material.dart';
+          import 'package:flutter/services.dart';
           import '../main.dart';
 
           class SubjectsScreen extends StatelessWidget {
@@ -1780,7 +1931,6 @@ jobs:
             }
           }
 
-          // STEP 1: Shows all levels inside the chosen cycle (Primaire: 5, Moyen: 4, Secondaire: 3)
           class CycleLevelsPage extends StatelessWidget {
             final String cycleCode;
             final String titleAr;
@@ -1867,11 +2017,11 @@ jobs:
                                     const SizedBox(height: 4),
                                     Text(
                                       ctrl.tr(
-                                        'اضغط لتصفح المواد الدراسية والفصول الثلاثة',
-                                        'Cliquez pour voir les matières et trimestres',
-                                        'Tap to browse subjects & trimesters',
+                                        'اضغط لتصفح المواد الدراسية (الدروس، الملخصات، الفروض، الاختبارات، الكتب)',
+                                        'Cliquez pour voir les matières et fichiers',
+                                        'Tap to browse subjects & files',
                                       ),
-                                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                                      style: const TextStyle(fontSize: 12.5, color: Colors.grey),
                                     ),
                                   ],
                                 ),
@@ -1892,7 +2042,6 @@ jobs:
             }
           }
 
-          // STEP 2: Shows all Subjects for the selected Level (and Stream selector if 1AS/2AS/3AS)
           class LevelSubjectsPage extends StatefulWidget {
             final String levelCode;
 
@@ -1918,7 +2067,12 @@ jobs:
               final is2AS3AS = widget.levelCode == '2AS' || widget.levelCode == '3AS';
               final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
 
-              final coeffsMap = ctrl.getCoefficientsForLevel(widget.levelCode, _selectedStream);
+              final coeffsMap = ctrl.getCoefficientsForLevel(
+                widget.levelCode,
+                _selectedStream,
+                includeSport: false,
+                includeAmazigh: true,
+              );
               final subjectIds = coeffsMap.keys.toList();
 
               return Scaffold(
@@ -2005,7 +2159,7 @@ jobs:
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w900,
-                                      fontSize: 15,
+                                      fontSize: 14.5,
                                     ),
                                   ),
                                   const SizedBox(height: 6),
@@ -2016,7 +2170,9 @@ jobs:
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Text(
-                                      '${ctrl.tr("المعامل", "Coeff", "Coeff")}: $coeff',
+                                      widget.levelCode.endsWith('AP')
+                                          ? ctrl.tr('طور ابتدائي (/10)', 'Primaire (/10)', 'Primary (/10)')
+                                          : '${ctrl.tr("المعامل", "Coeff", "Coeff")}: $coeff',
                                       style: const TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,
@@ -2037,7 +2193,7 @@ jobs:
             }
           }
 
-          // STEP 3: Shows Trimester 1, Trimester 2, Trimester 3 and the 4 sections (Lessons, Summaries, Tests, Exams)
+          // Shows Trimesters (1, 2, 3) and the 5 Folders: الدروس، الملخصات، الفروض، الاختبارات، الكتب
           class SubjectTrimestersPage extends StatefulWidget {
             final String levelCode;
             final String streamCode;
@@ -2057,18 +2213,28 @@ jobs:
           }
 
           class _SubjectTrimestersPageState extends State__LT__SubjectTrimestersPage__GT__ {
-            int _selectedTrimester = 1; // 1, 2, or 3
-            String _selectedCategory = 'lessons'; // 'lessons', 'summaries', 'tests', 'exams'
+            int _selectedTrimester = 1;
+            String _selectedCategory = 'lessons'; // 'lessons', 'summaries', 'tests', 'exams', 'books'
 
             @override
             Widget build(BuildContext context) {
               final ctrl = AppScope.of(context);
-              final items = ctrl.getStudyItems(
+              final items = ctrl.getUploadedStudyItems(
                 levelCode: widget.levelCode,
                 subjectId: widget.subjectId,
                 trimester: _selectedTrimester,
                 category: _selectedCategory,
               );
+
+              final catKeyHint = _selectedCategory == 'lessons'
+                  ? 'lesson'
+                  : _selectedCategory == 'summaries'
+                      ? 'resume'
+                      : _selectedCategory == 'tests'
+                          ? 'test'
+                          : _selectedCategory == 'exams'
+                              ? 'exam'
+                              : 'book';
 
               return Scaffold(
                 appBar: AppBar(
@@ -2076,109 +2242,147 @@ jobs:
                 ),
                 body: Column(
                   children: [
-                    // Trimester Selector (الفصل الأول، الفصل الثاني، الفصل الثالث)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      color: const Color(0xFF147A42).withOpacity(0.08),
-                      child: Row(
-                        children: [
-                          _buildTrimesterButton(1, ctrl.tr('الفصل الأول', 'Trimestre 1', 'Trimester 1')),
-                          const SizedBox(width: 8),
-                          _buildTrimesterButton(2, ctrl.tr('الفصل الثاني', 'Trimestre 2', 'Trimester 2')),
-                          const SizedBox(width: 8),
-                          _buildTrimesterButton(3, ctrl.tr('الفصل الثالث', 'Trimestre 3', 'Trimester 3')),
-                        ],
+                    // Trimester Selector (Hidden when Books folder is selected since books are for the whole year)
+                    if (_selectedCategory != 'books')
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        color: const Color(0xFF147A42).withOpacity(0.08),
+                        child: Row(
+                          children: [
+                            _buildTrimesterButton(1, ctrl.tr('الفصل الأول', 'Trimestre 1', 'Trimester 1')),
+                            const SizedBox(width: 8),
+                            _buildTrimesterButton(2, ctrl.tr('الفصل الثاني', 'Trimestre 2', 'Trimester 2')),
+                            const SizedBox(width: 8),
+                            _buildTrimesterButton(3, ctrl.tr('الفصل الثالث', 'Trimestre 3', 'Trimester 3')),
+                          ],
+                        ),
                       ),
-                    ),
 
-                    // 4 Category Cards (الدروس، الملخصات، الفروض، الاختبارات)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+                    // 5 Folders Row: الدروس، الملخصات، الفروض، الاختبارات، الكتب
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
                       child: Row(
                         children: [
-                          _buildSectionTab(
+                          _buildFolderTab(
                             id: 'lessons',
                             emoji: '📘',
                             label: ctrl.tr('الدروس', 'Cours', 'Lessons'),
                           ),
                           const SizedBox(width: 8),
-                          _buildSectionTab(
+                          _buildFolderTab(
                             id: 'summaries',
                             emoji: '📝',
                             label: ctrl.tr('الملخصات', 'Résumés', 'Summaries'),
                           ),
                           const SizedBox(width: 8),
-                          _buildSectionTab(
+                          _buildFolderTab(
                             id: 'tests',
                             emoji: '📄',
                             label: ctrl.tr('الفروض', 'Devoirs', 'Tests'),
                           ),
                           const SizedBox(width: 8),
-                          _buildSectionTab(
+                          _buildFolderTab(
                             id: 'exams',
                             emoji: '🏆',
                             label: ctrl.tr('الاختبارات', 'Examens', 'Exams'),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildFolderTab(
+                            id: 'books',
+                            emoji: '📚',
+                            label: ctrl.tr('الكتب', 'Livres', 'Books'),
                           ),
                         ],
                       ),
                     ),
                     const Divider(),
 
-                    // Items List for selected Trimester + Category
+                    // Uploaded Files List (or clean empty state if user hasn't uploaded files for this folder yet)
                     Expanded(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: items.length,
-                        itemBuilder: (context, idx) {
-                          final item = items[idx];
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.all(16),
-                              leading: CircleAvatar(
-                                radius: 24,
-                                backgroundColor: const Color(0xFF147A42).withOpacity(0.14),
-                                child: Text(
-                                  _selectedCategory == 'lessons'
-                                      ? '📘'
-                                      : _selectedCategory == 'summaries'
-                                          ? '📝'
-                                          : _selectedCategory == 'tests'
-                                              ? '📄'
-                                              : '🏆',
-                                  style: const TextStyle(fontSize: 22),
+                      child: items.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(28),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.folder_open_rounded,
+                                      size: 64,
+                                      color: Color(0xFF147A42),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      ctrl.tr(
+                                        'لا توجد ملفات PDF أو صور مرفوعة في هذا المجلد حالياً',
+                                        'Aucun fichier PDF ou image dans ce dossier pour le moment',
+                                        'No PDF or image files uploaded in this folder yet',
+                                      ),
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'لإضافة ملفات تلقائياً إلى هذا القسم، ارفع ملف PDF أو صورة في مجلد assets/ باسم يحتوي على:\n'
+                                      '${widget.levelCode.toLowerCase()}_${widget.subjectId}_t${_selectedTrimester}_$catKeyHint.pdf',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              title: Text(
-                                item['title']!,
-                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                              ),
-                              subtitle: Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(item['subtitle']!),
-                              ),
-                              trailing: const CircleAvatar(
-                                radius: 16,
-                                backgroundColor: Color(0xFF147A42),
-                                child: Icon(Icons.arrow_forward_ios, color: Colors.white, size: 14),
-                              ),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) =__GT__ ContentReaderPage(
-                                      title: item['title']!,
-                                      subtitle: item['subtitle']!,
-                                      body: item['body']!,
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: items.length,
+                              itemBuilder: (context, idx) {
+                                final fileItem = items[idx];
+                                final isPdf = fileItem['type'] == 'pdf';
+
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.all(14),
+                                    leading: CircleAvatar(
+                                      radius: 24,
+                                      backgroundColor: const Color(0xFF147A42).withOpacity(0.14),
+                                      child: Icon(
+                                        isPdf ? Icons.picture_as_pdf : Icons.image,
+                                        color: const Color(0xFF147A42),
+                                        size: 26,
+                                      ),
                                     ),
+                                    title: Text(
+                                      fileItem['title']?.toString() ?? '',
+                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                                    ),
+                                    subtitle: Text(
+                                      isPdf
+                                          ? ctrl.tr('ملف PDF • اضغط للفتح والمطالعة', 'Fichier PDF', 'PDF File')
+                                          : ctrl.tr('صورة • اضغط للعرض والتكبير', 'Image', 'Image File'),
+                                    ),
+                                    trailing: const CircleAvatar(
+                                      radius: 16,
+                                      backgroundColor: Color(0xFF147A42),
+                                      child: Icon(Icons.arrow_forward_ios, color: Colors.white, size: 14),
+                                    ),
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =__GT__ FileViewerPage(fileItem: fileItem),
+                                        ),
+                                      );
+                                    },
                                   ),
                                 );
                               },
                             ),
-                          );
-                        },
-                      ),
                     ),
                   ],
                 ),
@@ -2212,128 +2416,196 @@ jobs:
               );
             }
 
-            Widget _buildSectionTab({
+            Widget _buildFolderTab({
               required String id,
               required String emoji,
               required String label,
             }) {
               final selected = _selectedCategory == id;
-              return Expanded(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () =__GT__ setState(() =__GT__ _selectedCategory = id),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? const Color(0xFFF5B800).withOpacity(0.25)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: selected ? const Color(0xFF147A42) : Colors.grey.shade300,
-                        width: selected ? 2 : 1,
-                      ),
+              return InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () =__GT__ setState(() =__GT__ _selectedCategory = id),
+                child: Container(
+                  width: 82,
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? const Color(0xFFF5B800).withOpacity(0.25)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: selected ? const Color(0xFF147A42) : Colors.grey.shade300,
+                      width: selected ? 2 : 1,
                     ),
-                    child: Column(
-                      children: [
-                        Text(emoji, style: const TextStyle(fontSize: 22)),
-                        const SizedBox(height: 4),
-                        Text(
-                          label,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 12.5,
-                          ),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(emoji, style: const TextStyle(fontSize: 22)),
+                      const SizedBox(height: 4),
+                      Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12.5,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               );
             }
           }
 
-          class ContentReaderPage extends StatelessWidget {
-            final String title;
-            final String subtitle;
-            final String body;
+          // Built-in Offline Viewer for both PDFs (via Android native PdfRenderer) and Images
+          class FileViewerPage extends StatefulWidget {
+            final Map__LT__String, dynamic__GT__ fileItem;
 
-            const ContentReaderPage({
-              super.key,
-              required this.title,
-              required this.subtitle,
-              required this.body,
-            });
+            const FileViewerPage({super.key, required this.fileItem});
+
+            @override
+            State__LT__FileViewerPage__GT__ createState() =__GT__ _FileViewerPageState();
+          }
+
+          class _FileViewerPageState extends State__LT__FileViewerPage__GT__ {
+            static const _pdfChannel = MethodChannel('dz.studydz.app/pdf');
+            int _pageCount = 0;
+            int _currentPage = 0;
+            Uint8List? _pageBytes;
+            bool _loading = true;
+            String? _error;
+
+            @override
+            void initState() {
+              super.initState();
+              if (widget.fileItem['type'] == 'pdf') {
+                _initPdf();
+              } else {
+                _loading = false;
+              }
+            }
+
+            Future__LT__void__GT__ _initPdf() async {
+              try {
+                final path = widget.fileItem['path']?.toString() ?? '';
+                final count = await _pdfChannel.invokeMethod__LT__int__GT__(
+                  'getPageCount',
+                  {'assetPath': path},
+                );
+                _pageCount = count ?? 0;
+                if (_pageCount __GT__ 0) {
+                  await _loadPage(0);
+                } else {
+                  setState(() {
+                    _loading = false;
+                    _error = 'ملف PDF فارغ';
+                  });
+                }
+              } catch (e) {
+                setState(() {
+                  _loading = false;
+                  _error = e.toString();
+                });
+              }
+            }
+
+            Future__LT__void__GT__ _loadPage(int pageIdx) async {
+              setState(() =__GT__ _loading = true);
+              try {
+                final path = widget.fileItem['path']?.toString() ?? '';
+                final bytes = await _pdfChannel.invokeMethod__LT__Uint8List__GT__(
+                  'renderPage',
+                  {'assetPath': path, 'pageIndex': pageIdx},
+                );
+                setState(() {
+                  _currentPage = pageIdx;
+                  _pageBytes = bytes;
+                  _loading = false;
+                });
+              } catch (e) {
+                setState(() {
+                  _loading = false;
+                  _error = e.toString();
+                });
+              }
+            }
 
             @override
             Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
+              final title = widget.fileItem['title']?.toString() ?? '';
+              final path = widget.fileItem['path']?.toString() ?? '';
+              final isPdf = widget.fileItem['type'] == 'pdf';
+
               return Scaffold(
-                appBar: AppBar(title: Text(title)),
-                body: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 19,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF147A42),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              subtitle,
-                              style: const TextStyle(fontSize: 13.5, color: Colors.grey),
-                            ),
-                            const Divider(height: 28),
-                            Text(
-                              body,
-                              style: const TextStyle(fontSize: 16, height: 1.75),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF147A42),
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                      ),
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              ctrl.tr(
-                                'تم تجهيز ملف الـ PDF للمراجعة بدون إنترنت.',
-                                'Fichier PDF prêt pour lecture hors-ligne.',
-                                'PDF ready for offline viewing.',
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.picture_as_pdf),
-                      label: Text(
-                        ctrl.tr('فتح / تحميل النسخة بصيغة PDF', 'Ouvrir / Télécharger PDF', 'Open / Download PDF'),
-                      ),
-                    ),
-                  ],
+                appBar: AppBar(
+                  title: Text(title),
                 ),
+                body: !isPdf
+                    ? InteractiveViewer(
+                        minScale: 0.8,
+                        maxScale: 5.0,
+                        child: Center(
+                          child: Image.asset(path, fit: BoxFit.contain),
+                        ),
+                      )
+                    : _loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : _error != null
+                            ? Center(child: Text('تعذر فتح الملف: $_error'))
+                            : Column(
+                                children: [
+                                  Expanded(
+                                    child: InteractiveViewer(
+                                      minScale: 0.8,
+                                      maxScale: 5.0,
+                                      child: Center(
+                                        child: _pageBytes != null
+                                            ? Image.memory(_pageBytes!, fit: BoxFit.contain)
+                                            : const SizedBox.shrink(),
+                                      ),
+                                    ),
+                                  ),
+                                  if (_pageCount __GT__ 1)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                      color: const Color(0xFF147A42),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          IconButton(
+                                            color: Colors.white,
+                                            onPressed: _currentPage __GT__ 0
+                                                ? () =__GT__ _loadPage(_currentPage - 1)
+                                                : null,
+                                            icon: const Icon(Icons.navigate_before),
+                                          ),
+                                          Text(
+                                            'صفحة ${_currentPage + 1} من $_pageCount',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            color: Colors.white,
+                                            onPressed: _currentPage + 1 __LT__ _pageCount
+                                                ? () =__GT__ _loadPage(_currentPage + 1)
+                                                : null,
+                                            icon: const Icon(Icons.navigate_next),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
               );
             }
           }
           ''')
 
-          # 10. Write lib/screens/practice_screen.dart (Lightweight placeholder in case imported)
+          # 11. Write lib/screens/practice_screen.dart
           write_file("lib/screens/practice_screen.dart", r'''import 'package:flutter/material.dart';
 
           class PracticeScreen extends StatelessWidget {
@@ -2346,7 +2618,7 @@ jobs:
           }
           ''')
 
-          # 11. Write lib/screens/tools_screen.dart (ONLY the Fixed Dynamic Average Calculator with Level & Stream Switcher)
+          # 12. Write lib/screens/tools_screen.dart (Exact eddirasa.com/average/ Template & Formulas for All Levels + BEM/BAC Exam Mode)
           write_file("lib/screens/tools_screen.dart", r'''import 'package:flutter/material.dart';
           import '../main.dart';
 
@@ -2360,74 +2632,187 @@ jobs:
           class _ToolsScreenState extends State__LT__ToolsScreen__GT__ {
             String? _calcLevel;
             String? _calcStream;
-            final Map__LT__String, double__GT__ _marks = {};
-            double? _avgResult;
+            bool _isOfficialExamMode = false; // false = المعدل الفصلي, true = معدل شهادة البيام / البكالوريا
+            bool _includeSport = true;
+            bool _includeAmazigh = false;
+            bool _includeArt = false;
 
-            String _mentionLabel(double avg, AppController ctrl) {
-              if (avg __GT__= 16) {
-                return ctrl.tr('التقدير: جيد جداً 🌟 (Très Bien)', 'Mention : Très Bien 🌟', 'Grade: Excellent 🌟');
+            // Stores marks per subject: 'taqwim' (التقويم), 'devoir' (الفرض), 'exam' (الاختبار)
+            final Map__LT__String, double__GT__ _taqwimMarks = {};
+            final Map__LT__String, double__GT__ _devoirMarks = {};
+            final Map__LT__String, double__GT__ _examMarks = {};
+
+            int _resetVersion = 0;
+
+            double _getTaqwim(String key, double defaultVal) =__GT__ _taqwimMarks[key] ?? defaultVal;
+            double _getDevoir(String key, double defaultVal) =__GT__ _devoirMarks[key] ?? defaultVal;
+            double _getExam(String key, double defaultVal) =__GT__ _examMarks[key] ?? defaultVal;
+
+            // Eddirasa.com formula for a single subject
+            double _subjectAverage({
+              required String key,
+              required bool isPrimary,
+              required bool isExamCertificateMode,
+            }) {
+              if (isPrimary) {
+                return _getExam(key, 8.0).clamp(0.0, 10.0);
               }
-              if (avg __GT__= 14) {
-                return ctrl.tr('التقدير: جيد 👏 (Bien)', 'Mention : Bien 👏', 'Grade: Good 👏');
+              if (isExamCertificateMode) {
+                return _getExam(key, 12.0).clamp(0.0, 20.0);
               }
-              if (avg __GT__= 12) {
-                return ctrl.tr('التقدير: قريب من الجيد (Assez Bien)', 'Mention : Assez Bien', 'Grade: Fairly Good');
+              // Official Moyen & Secondaire Term Formula on eddirasa.com:
+              // معدل المادة = ((الفرض + التقويم المستمر)/2 + الاختبار*2) / 3
+              final t = _getTaqwim(key, 14.0).clamp(0.0, 20.0);
+              final d = _getDevoir(key, 13.0).clamp(0.0, 20.0);
+              final ex = _getExam(key, 13.0).clamp(0.0, 20.0);
+              return (((t + d) / 2.0) + (ex * 2.0)) / 3.0;
+            }
+
+            String _mentionLabel(double avg, bool isPrimary, AppController ctrl) {
+              final normalized20 = isPrimary ? avg * 2.0 : avg;
+              if (normalized20 __GT__= 16) {
+                return ctrl.tr('التقدير: جيد جداً 🌟 (Très Bien)', 'Mention : Très Bien 🌟', 'Mention: Very Good 🌟');
               }
-              if (avg __GT__= 10) {
-                return ctrl.tr('التقدير: مقبول ✅ (Passable)', 'Mention : Passable ✅', 'Grade: Pass ✅');
+              if (normalized20 __GT__= 14) {
+                return ctrl.tr('التقدير: جيد 👏 (Bien)', 'Mention : Bien 👏', 'Mention: Good 👏');
               }
-              return ctrl.tr('دون المعدل — واصل الاجتهاد وستنجح بإذن الله 💪', 'Sous la moyenne 💪', 'Below Average 💪');
+              if (normalized20 __GT__= 12) {
+                return ctrl.tr('التقدير: قريب من الجيد (Assez Bien)', 'Mention : Assez Bien', 'Mention: Fairly Good');
+              }
+              if (normalized20 __GT__= 10) {
+                return ctrl.tr('التقدير: مقبول ✅ (Passable)', 'Mention : Passable ✅', 'Mention: Pass ✅');
+              }
+              return ctrl.tr('دون المعدل — واصل الاجتهاد 💪', 'Sous la moyenne 💪', 'Below Average 💪');
             }
 
             @override
             Widget build(BuildContext context) {
               final ctrl = AppScope.of(context);
               final activeLevel = _calcLevel ?? ctrl.currentProfile.levelCode;
+              final isPrimary = activeLevel.endsWith('AP');
               final is1AS = activeLevel == '1AS';
               final is2AS3AS = activeLevel == '2AS' || activeLevel == '3AS';
-              final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
+              final canHaveOfficialExamMode = activeLevel == '4AM' || activeLevel == '3AS';
+              final effectiveExamMode = canHaveOfficialExamMode && _isOfficialExamMode;
 
+              final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
               String activeStream = _calcStream ?? ctrl.currentProfile.streamCode;
               if ((is1AS || is2AS3AS) && !streams.any((s) =__GT__ s['code'] == activeStream)) {
                 activeStream = streams.first['code']!;
               }
 
-              final coeffsMap = ctrl.getCoefficientsForLevel(activeLevel, activeStream);
+              final coeffsMap = ctrl.getCoefficientsForLevel(
+                activeLevel,
+                activeStream,
+                includeSport: _includeSport,
+                includeAmazigh: _includeAmazigh,
+                includeArt: _includeArt,
+              );
+
+              // In BEM official certificate mode, CS & Civics are not in the removed list, CS is not a BEM exam subject
+              if (effectiveExamMode && activeLevel == '4AM') {
+                coeffsMap.remove('cs');
+              }
+
               final subjectIds = coeffsMap.keys.toList();
 
               int totalCoeffs = 0;
-              for (final c in coeffsMap.values) {
-                totalCoeffs += c;
+              double totalPoints = 0.0;
+
+              for (final subjId in subjectIds) {
+                final key = '${activeLevel}_${activeStream}_${effectiveExamMode}_$subjId';
+                final sAvg = _subjectAverage(
+                  key: key,
+                  isPrimary: isPrimary,
+                  isExamCertificateMode: effectiveExamMode,
+                );
+                final c = coeffsMap[subjId] ?? 1;
+
+                // On eddirasa.com BEM calculator: Art/Music only counts points above 10 as bonus with 0 added to totalCoeffs
+                if (effectiveExamMode && activeLevel == '4AM' && subjId == 'art') {
+                  if (sAvg __GT__ 10.0) {
+                    totalPoints += (sAvg - 10.0);
+                  }
+                } else {
+                  totalCoeffs += c;
+                  totalPoints += sAvg * c;
+                }
               }
+
+              final finalAverage = totalCoeffs == 0 ? 0.0 : totalPoints / totalCoeffs;
+              final maxScale = isPrimary ? 10 : 20;
 
               return Scaffold(
                 appBar: AppBar(
-                  title: Text(ctrl.tr('حاسبة المعدل الفصلي والرسمي', 'Calculateur de Moyenne', 'Average Calculator')),
+                  title: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.calculate_rounded, color: Color(0xFFF5B800), size: 26),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          ctrl.tr('حاسبة المعدل الدراسي', 'Calculateur de Moyenne', 'Average Calculator'),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 body: ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   children: [
-                    // Level & Stream Selector inside the calculator so changing years updates coefficients immediately
+                    // Top Level & Stream Card (Eddirasa.com header style)
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Text(
-                              ctrl.tr(
-                                'اختر السنة الدراسية والشعبة لحساب المعدل بالمعاملات الرسمية:',
-                                'Sélectionnez l\'année et la filière :',
-                                'Select Grade Level & Stream:',
+                            // Quick Cycle Pills (ابتدائي / متوسط / ثانوي)
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: AppController.allLevels.map((lvl) {
+                                  final code = lvl['code']!;
+                                  final selected = code == activeLevel;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(left: 6, right: 2),
+                                    child: ChoiceChip(
+                                      label: Text(
+                                        code,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          color: selected ? Colors.white : const Color(0xFF147A42),
+                                        ),
+                                      ),
+                                      selected: selected,
+                                      selectedColor: const Color(0xFF147A42),
+                                      onSelected: (_) {
+                                        setState(() {
+                                          _calcLevel = code;
+                                          _isOfficialExamMode = false;
+                                          if (code == '1AS') {
+                                            _calcStream = 'TC_ST';
+                                          } else if (code == '2AS' || code == '3AS') {
+                                            _calcStream = 'SE';
+                                          } else {
+                                            _calcStream = '';
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  );
+                                }).toList(),
                               ),
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 10),
                             DropdownButtonFormField__LT__String__GT__(
                               value: activeLevel,
                               decoration: InputDecoration(
                                 labelText: ctrl.tr('السنة الدراسية', 'Niveau scolaire', 'Grade Level'),
+                                prefixIcon: const Icon(Icons.school, color: Color(0xFF147A42)),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                               ),
                               items: AppController.allLevels
                                   .map((lvl) =__GT__ DropdownMenuItem__LT__String__GT__(
@@ -2439,7 +2824,7 @@ jobs:
                                 if (val != null) {
                                   setState(() {
                                     _calcLevel = val;
-                                    _avgResult = null;
+                                    _isOfficialExamMode = false;
                                     if (val == '1AS') {
                                       _calcStream = 'TC_ST';
                                     } else if (val == '2AS' || val == '3AS') {
@@ -2447,20 +2832,19 @@ jobs:
                                     } else {
                                       _calcStream = '';
                                     }
-                                    ctrl.currentProfile.levelCode = val;
-                                    ctrl.currentProfile.streamCode = _calcStream ?? '';
-                                    ctrl.saveState();
                                   });
                                 }
                               },
                             ),
                             if (is1AS || is2AS3AS) ...[
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 10),
                               DropdownButtonFormField__LT__String__GT__(
                                 value: activeStream,
                                 decoration: InputDecoration(
-                                  labelText: ctrl.tr('الشعبة', 'Filière', 'Stream'),
+                                  labelText: ctrl.tr('الشعبة / الجذع المشترك', 'Filière', 'Stream'),
+                                  prefixIcon: const Icon(Icons.account_tree_outlined, color: Color(0xFF147A42)),
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                                 ),
                                 items: streams
                                     .map((s) =__GT__ DropdownMenuItem__LT__String__GT__(
@@ -2470,164 +2854,448 @@ jobs:
                                     .toList(),
                                 onChanged: (val) {
                                   if (val != null) {
-                                    setState(() {
-                                      _calcStream = val;
-                                      _avgResult = null;
-                                      ctrl.currentProfile.streamCode = val;
-                                      ctrl.saveState();
-                                    });
+                                    setState(() =__GT__ _calcStream = val);
                                   }
                                 },
                               ),
                             ],
-                            const SizedBox(height: 10),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF147A42).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
+
+                            // Toggle between Term Average and BEM / BAC Certificate Mode for 4AM and 3AS
+                            if (canHaveOfficialExamMode) ...[
+                              const SizedBox(height: 12),
+                              SegmentedButton__LT__bool__GT__(
+                                segments: [
+                                  ButtonSegment(
+                                    value: false,
+                                    label: Text(ctrl.tr('حساب المعدل الفصلي', 'Moyenne Trimestrielle', 'Term Average')),
+                                  ),
+                                  ButtonSegment(
+                                    value: true,
+                                    label: Text(
+                                      activeLevel == '4AM'
+                                          ? ctrl.tr('حساب معدل شهادة البيام BEM', 'Moyenne BEM', 'BEM Exam')
+                                          : ctrl.tr('حساب معدل البكالوريا BAC', 'Moyenne BAC', 'BAC Exam'),
+                                    ),
+                                  ),
+                                ],
+                                selected: {_isOfficialExamMode},
+                                onSelectionChanged: (s) {
+                                  setState(() =__GT__ _isOfficialExamMode = s.first);
+                                },
                               ),
-                              child: Text(
-                                '${ctrl.tr("عدد المواد", "Matières", "Subjects")}: ${subjectIds.length}   •   '
-                                '${ctrl.tr("مجموع المعاملات", "Total Coeffs", "Total Coeffs")}: $totalCoeffs',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF147A42),
+                            ],
+
+                            const SizedBox(height: 12),
+                            // Optional Subject Toggles (تربية بدنية، أمازيغية، تربية تشكيلية) just like eddirasa.com
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                FilterChip(
+                                  label: Text(ctrl.tr('تربية بدنية', 'Sport', 'Sport')),
+                                  selected: _includeSport,
+                                  onSelected: (v) =__GT__ setState(() =__GT__ _includeSport = v),
                                 ),
-                              ),
+                                if (activeLevel != '1AP' && activeLevel != '2AP')
+                                  FilterChip(
+                                    label: Text(ctrl.tr('لغة أمازيغية', 'Amazigh', 'Amazigh')),
+                                    selected: _includeAmazigh,
+                                    onSelected: (v) =__GT__ setState(() =__GT__ _includeAmazigh = v),
+                                  ),
+                                if (!is2AS3AS)
+                                  FilterChip(
+                                    label: Text(ctrl.tr('تربية تشكيلية/موسيقية', 'Art/Musique', 'Art/Music')),
+                                    selected: _includeArt,
+                                    onSelected: (v) =__GT__ setState(() =__GT__ _includeArt = v),
+                                  ),
+                              ],
                             ),
                           ],
                         ),
                       ),
                     ),
+
+                    const SizedBox(height: 10),
+
+                    // Formula Explanation Box matching Eddirasa
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F5E9),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFF147A42).withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        isPrimary
+                            ? '📌 طريقة الحساب (الطور الابتدائي): العلامات من 10، والمعدل الفصلي = مجموع علامات المواد ÷ عدد المواد.'
+                            : effectiveExamMode
+                                ? '📌 طريقة حساب معدل الشهادة الرسمية: (علامة كل مادة × معاملها) ÷ مجموع المعاملات ($totalCoeffs).'
+                                : '📌 طريقة حساب معدل المادة (موقع الدراسة الجزائري):\nمعدل المادة = ((التقويم + الفرض) ÷ 2 + الاختبار × 2) ÷ 3  |  المعدل = مجموع النقاط ÷ مجموع المعاملات ($totalCoeffs).',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0E4B29),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Eddirasa-style Subject Rows
+                    for (final subjId in subjectIds)
+                      _buildEddirasaSubjectCard(
+                        ctrl: ctrl,
+                        activeLevel: activeLevel,
+                        activeStream: activeStream,
+                        subjId: subjId,
+                        coeff: coeffsMap[subjId] ?? 1,
+                        isPrimary: isPrimary,
+                        isExamCertificateMode: effectiveExamMode,
+                      ),
+
                     const SizedBox(height: 14),
 
-                    // Dynamic Subject Rows with ValueKey so changing level refreshes coefficients & inputs
-                    for (final subjId in subjectIds)
-                      Card(
-                        key: ValueKey('row_${activeLevel}_${activeStream}_$subjId'),
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          child: Row(
+                    // Final Eddirasa Result Summary Card (المعاملات | النقاط | معدلك المحسوب)
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF147A42), Color(0xFF0F5E32)],
+                        ),
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
                             children: [
-                              Text(ctrl.subjectEmoji(subjId), style: const TextStyle(fontSize: 26)),
-                              const SizedBox(width: 10),
                               Expanded(
-                                flex: 4,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      ctrl.subjectTitle(subjId),
-                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
-                                    ),
-                                    Text(
-                                      '${ctrl.tr("المعامل الرسمي", "Coefficient", "Coefficient")}: ${coeffsMap[subjId]}',
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF147A42),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.14),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        ctrl.tr('مجموع المعاملات', 'Coefficients', 'Total Coeffs'),
+                                        style: const TextStyle(color: Colors.white70, fontSize: 12.5),
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '$totalCoeffs',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 20,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
-                                flex: 2,
-                                child: TextFormField(
-                                  key: ValueKey('input_${activeLevel}_${activeStream}_$subjId'),
-                                  initialValue: (_marks['${activeLevel}_${activeStream}_$subjId'] ?? 14.0).toString(),
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  textAlign: TextAlign.center,
-                                  decoration: InputDecoration(
-                                    suffixText: '/20',
-                                    isDense: true,
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.14),
+                                    borderRadius: BorderRadius.circular(14),
                                   ),
-                                  onChanged: (v) {
-                                    final parsed = double.tryParse(v);
-                                    if (parsed != null) {
-                                      _marks['${activeLevel}_${activeStream}_$subjId'] = parsed.clamp(0.0, 20.0);
-                                    }
-                                  },
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        ctrl.tr('مجموع النقاط', 'Total Points', 'Total Points'),
+                                        style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        totalPoints.toStringAsFixed(2),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 20,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ),
-
-                    const SizedBox(height: 14),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF147A42),
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
-                      onPressed: () {
-                        double weightedSum = 0;
-                        int sumCoeffs = 0;
-                        for (final subjId in subjectIds) {
-                          final coeff = coeffsMap[subjId] ?? 1;
-                          final mark = _marks['${activeLevel}_${activeStream}_$subjId'] ?? 14.0;
-                          weightedSum += mark * coeff;
-                          sumCoeffs += coeff;
-                        }
-                        setState(() {
-                          _avgResult = sumCoeffs == 0 ? 0.0 : weightedSum / sumCoeffs;
-                        });
-                      },
-                      icon: const Icon(Icons.calculate_outlined),
-                      label: Text(
-                        ctrl.tr('احسب معدلي الآن', 'Calculer ma moyenne', 'Calculate My Average'),
-                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                          const SizedBox(height: 14),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  ctrl.tr('معدلك المحسوب', 'Votre Moyenne Calculée', 'Your Calculated Average'),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black54,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${finalAverage.toStringAsFixed(2)} / $maxScale',
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF147A42),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _mentionLabel(finalAverage, isPrimary, ctrl),
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0E4B29),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white54),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _taqwimMarks.clear();
+                                _devoirMarks.clear();
+                                _examMarks.clear();
+                                _resetVersion++;
+                              });
+                            },
+                            icon: const Icon(Icons.refresh),
+                            label: Text(ctrl.tr('مسح وإعادة ضبط العلامات', 'Réinitialiser', 'Reset Marks')),
+                          ),
+                        ],
                       ),
                     ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              );
+            }
 
-                    if (_avgResult != null) ...[
-                      const SizedBox(height: 18),
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F5E9),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFF147A42), width: 2),
-                        ),
-                        child: Column(
-                          children: [
-                            Text(
-                              '${ctrl.tr("المعدل العام", "Moyenne Générale", "Overall Average")}: ${_avgResult!.toStringAsFixed(2)} / 20',
+            Widget _buildEddirasaSubjectCard({
+              required AppController ctrl,
+              required String activeLevel,
+              required String activeStream,
+              required String subjId,
+              required int coeff,
+              required bool isPrimary,
+              required bool isExamCertificateMode,
+            }) {
+              final key = '${activeLevel}_${activeStream}_${isExamCertificateMode}_$subjId';
+              final subjAvg = _subjectAverage(
+                key: key,
+                isPrimary: isPrimary,
+                isExamCertificateMode: isExamCertificateMode,
+              );
+              final isBemBonusArt = isExamCertificateMode && activeLevel == '4AM' && subjId == 'art';
+              final subjPoints = isBemBonusArt
+                  ? (subjAvg __GT__ 10.0 ? subjAvg - 10.0 : 0.0)
+                  : subjAvg * coeff;
+
+              return Card(
+                key: ValueKey('card_${_resetVersion}_$key'),
+                margin: const EdgeInsets.only(bottom: 10),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(ctrl.subjectEmoji(subjId), style: const TextStyle(fontSize: 24)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              ctrl.subjectTitle(subjId),
+                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF147A42).withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              isBemBonusArt
+                                  ? 'نقاط إضافية (>10)'
+                                  : '${ctrl.tr("المعامل", "Coeff", "Coeff")}: $coeff',
                               style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
                                 color: Color(0xFF147A42),
                               ),
                             ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      if (isPrimary || isExamCertificateMode)
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: TextFormField(
+                                initialValue: _getExam(key, isPrimary ? 8.0 : 12.0).toString(),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                textAlign: TextAlign.center,
+                                decoration: InputDecoration(
+                                  labelText: isPrimary
+                                      ? ctrl.tr('علامة الاختبار (/10)', 'Note (/10)', 'Exam (/10)')
+                                      : ctrl.tr('علامة الشهادة (/20)', 'Note (/20)', 'Exam (/20)'),
+                                  isDense: true,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                onChanged: (v) {
+                                  final parsed = double.tryParse(v);
+                                  if (parsed != null) {
+                                    setState(() {
+                                      _examMarks[key] = parsed.clamp(0.0, isPrimary ? 10.0 : 20.0);
+                                    });
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 2,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE8F5E9),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${ctrl.tr("النقاط", "Pts", "Pts")}: ${subjPoints.toStringAsFixed(2)}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF147A42),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: _getTaqwim(key, 14.0).toString(),
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    textAlign: TextAlign.center,
+                                    decoration: InputDecoration(
+                                      labelText: ctrl.tr('التقويم /20', 'Éval /20', 'CC /20'),
+                                      isDense: true,
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                    onChanged: (v) {
+                                      final p = double.tryParse(v);
+                                      if (p != null) {
+                                        setState(() =__GT__ _taqwimMarks[key] = p.clamp(0.0, 20.0));
+                                      }
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: _getDevoir(key, 13.0).toString(),
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    textAlign: TextAlign.center,
+                                    decoration: InputDecoration(
+                                      labelText: ctrl.tr('الفرض /20', 'Devoir /20', 'Test /20'),
+                                      isDense: true,
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                    onChanged: (v) {
+                                      final p = double.tryParse(v);
+                                      if (p != null) {
+                                        setState(() =__GT__ _devoirMarks[key] = p.clamp(0.0, 20.0));
+                                      }
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: _getExam(key, 13.0).toString(),
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    textAlign: TextAlign.center,
+                                    decoration: InputDecoration(
+                                      labelText: ctrl.tr('الاختبار /20', 'Examen /20', 'Exam /20'),
+                                      isDense: true,
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                    onChanged: (v) {
+                                      final p = double.tryParse(v);
+                                      if (p != null) {
+                                        setState(() =__GT__ _examMarks[key] = p.clamp(0.0, 20.0));
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 8),
-                            Text(
-                              _mentionLabel(_avgResult!, ctrl),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0E4B29),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE8F5E9),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    '${ctrl.tr("معدل المادة", "Moyenne matière", "Subject Avg")}: ${subjAvg.toStringAsFixed(2)} / 20',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12.5,
+                                      color: Color(0xFF0E4B29),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${ctrl.tr("المجموع", "Total", "Points")}: ${subjPoints.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 12.5,
+                                      color: Color(0xFF147A42),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
-                      ),
                     ],
-                    const SizedBox(height: 24),
-                  ],
+                  ),
                 ),
               );
             }
           }
           ''')
 
-          # 12. Write lib/screens/profile_screen.dart (Drawer Menu: Account, Google Sign-In, Gender, Language AR/FR/EN, About Us, Privacy Policy)
+          # 13. Write lib/screens/profile_screen.dart
           write_file("lib/screens/profile_screen.dart", r'''import 'package:flutter/material.dart';
           import '../main.dart';
 
@@ -2691,7 +3359,6 @@ jobs:
                       child: ListView(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         children: [
-                          // 1. Account
                           ListTile(
                             leading: const Icon(Icons.person_outline, color: Color(0xFF147A42)),
                             title: Text(
@@ -2714,8 +3381,6 @@ jobs:
                             },
                           ),
                           const Divider(),
-
-                          // 2. Language Switcher (Arabic, French, English)
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             child: Column(
@@ -2748,8 +3413,6 @@ jobs:
                             ),
                           ),
                           const Divider(),
-
-                          // 3. Dark Mode
                           SwitchListTile(
                             secondary: const Icon(Icons.dark_mode_outlined, color: Color(0xFF147A42)),
                             title: Text(
@@ -2763,8 +3426,6 @@ jobs:
                             },
                           ),
                           const Divider(),
-
-                          // 4. About Us
                           ListTile(
                             leading: const Icon(Icons.info_outline, color: Color(0xFF147A42)),
                             title: Text(
@@ -2779,8 +3440,6 @@ jobs:
                               );
                             },
                           ),
-
-                          // 5. Privacy Policy
                           ListTile(
                             leading: const Icon(Icons.privacy_tip_outlined, color: Color(0xFF147A42)),
                             title: Text(
@@ -3052,14 +3711,10 @@ jobs:
                             const SizedBox(height: 12),
                             Text(
                               ctrl.tr(
-                                'منصة تعليمية جزائرية شاملة صُممت خصيصاً لمرافقة التلاميذ في جميع الأطوار التعليمية الثلاثة:\n'
-                                '• التعليم الابتدائي (من السنة الأولى إلى السنة الخامسة 5AP)\n'
-                                '• التعليم المتوسط (من السنة الأولى إلى السنة الرابعة 4AM - شهادة التعليم المتوسط BEM)\n'
-                                '• التعليم الثانوي (من السنة الأولى إلى السنة الثالثة 3AS - شهادة البكالوريا BAC بجميع الشعب).\n\n'
-                                'يوفر التطبيق الدروس، الملخصات المركزة، الفروض، والاختبارات الفصلية لكل ثلاثي، بالإضافة إلى حاسبة المعدل الدقيقة بالمعاملات الرسمية لكل مستوى.\n\n'
+                                'منصة تعليمية جزائرية شاملة صُممت لمرافقة التلاميذ في جميع الأطوار التعليمية الثلاثة (الابتدائي، المتوسط، الثانوي) مع الدروس، الملخصات، الفروض، الاختبارات، الكتب المدرسية، وحاسبة المعدل المعتمدة.\n\n'
                                 'إخلاء مسؤولية: هذا التطبيق مبادرة تعليمية مستقلة وغير تابع لوزارة التربية الوطنية أو الديوان الوطني للامتحانات والمسابقات (ONEC).',
-                                'Study DZ est une application éducative algérienne couvrant le Primaire, le Moyen (BEM) et le Secondaire (BAC) avec cours, résumés, devoirs, examens par trimestre et calculateur de moyenne.',
-                                'Study DZ is an Algerian educational platform covering Primary, Middle (BEM), and High School (BAC) levels with trimester lessons, summaries, tests, exams, and an official GPA calculator.',
+                                'Study DZ est une application éducative algérienne couvrant le Primaire, le Moyen (BEM) et le Secondaire (BAC).',
+                                'Study DZ is an Algerian educational platform covering Primary, Middle (BEM), and High School (BAC) levels.',
                               ),
                               style: const TextStyle(fontSize: 15.5, height: 1.7),
                             ),
@@ -3103,14 +3758,10 @@ jobs:
                             const SizedBox(height: 12),
                             Text(
                               ctrl.tr(
-                                '1. التخزين المحلي الكامل:\n'
-                                'يحترم تطبيق "ستدي دي زد" خصوصية التلاميذ والأولياء بشكل تام. يتم حفظ جميع بياناتك (الاسم، السنة الدراسية، العلامات المحسوبة، والإعدادات) محلياً داخل ذاكرة هاتفك فقط.\n\n'
-                                '2. عدم مشاركة البيانات:\n'
-                                'لا نقوم ببيع أو مشاركة أي بيانات شخصية مع أي طرف ثالث أو جهات إعلانية.\n\n'
-                                '3. التحكم الكامل:\n'
-                                'يمكنك تعديل بيانات حسابك أو حذفها في أي وقت من صفحة "حسابي الشخصي" في القائمة الجانبية.',
-                                '1. Stockage local : Toutes vos préférences et notes sont enregistrées localement sur votre téléphone.\n\n2. Aucun partage : Aucune donnée personnelle n\'est partagée avec des tiers.',
-                                '1. Local Storage: All profile settings and calculated marks are stored locally on your device.\n\n2. No Third-Party Sharing: We never sell or share your personal data with third parties.',
+                                '1. التخزين المحلي الكامل: يتم حفظ جميع بياناتك وعلاماتك محلياً داخل ذاكرة هاتفك فقط.\n\n'
+                                '2. عدم مشاركة البيانات: لا نقوم ببيع أو مشاركة أي بيانات شخصية مع أي طرف ثالث.',
+                                'Toutes vos préférences et notes sont enregistrées localement sur votre téléphone.',
+                                'All profile settings and calculated marks are stored locally on your device.',
                               ),
                               style: const TextStyle(fontSize: 15.5, height: 1.7),
                             ),
@@ -3125,16 +3776,22 @@ jobs:
           }
           ''')
 
-          # 13. Ensure pubspec.yaml name and dependency_overrides are set
+          # 14. Ensure pubspec.yaml includes all discovered asset directories
           with open("pubspec.yaml", "r", encoding="utf-8") as f:
               pub = f.read()
           pub = re.sub(r"^name:\s*.*$", "name: study_dz", pub, flags=re.MULTILINE)
+
+          # Make sure any subfolder inside assets/ is registered in pubspec.yaml
+          for d in sorted(all_asset_dirs):
+              if d != "assets/" and f"- {d}" not in pub:
+                  pub = pub.replace("- assets/", f"- assets/\n    - {d}")
+
           if "dependency_overrides:" not in pub:
               pub += "\ndependency_overrides:\n  flutter_tts: 4.0.2\n  flutter_local_notifications: 17.2.3\n  shared_preferences: 2.2.3\n  path_provider: 2.1.4\n  sqflite: 2.3.3+1\n"
           with open("pubspec.yaml", "w", encoding="utf-8") as f:
               f.write(pub)
 
-          # 14. Upgrade AGP & Kotlin in android/settings.gradle
+          # 15. Upgrade AGP & Kotlin in android/settings.gradle
           with open("android/settings.gradle", "r", encoding="utf-8") as f:
               sg = f.read()
           sg = re.sub(r'id\s+"com\.android\.application"\s+version\s+"[^"]+"', 'id "com.android.application" version "8.3.2"', sg)
@@ -3142,7 +3799,7 @@ jobs:
           with open("android/settings.gradle", "w", encoding="utf-8") as f:
               f.write(sg)
 
-          # 15. Upgrade Gradle Wrapper to 8.4
+          # 16. Upgrade Gradle Wrapper to 8.4
           gw_path = "android/gradle/wrapper/gradle-wrapper.properties"
           with open(gw_path, "r", encoding="utf-8") as f:
               gw = f.read()
@@ -3150,7 +3807,7 @@ jobs:
           with open(gw_path, "w", encoding="utf-8") as f:
               f.write(gw)
 
-          # 16. Write android/app/build.gradle
+          # 17. Write android/app/build.gradle
           write_file("android/app/build.gradle", r'''plugins {
               id "com.android.application"
               id "kotlin-android"
@@ -3176,8 +3833,8 @@ jobs:
                   applicationId = "dz.studydz.app"
                   minSdk = 21
                   targetSdk = 34
-                  versionCode = 2
-                  versionName = "2.0.0"
+                  versionCode = 3
+                  versionName = "3.0.0"
                   multiDexEnabled true
               }
 
@@ -3200,7 +3857,7 @@ jobs:
           }
           ''')
 
-          # 17. Copy custom app icon if present
+          # 18. Copy custom app icon if present
           for icon_candidate in ["icon.png", "assets/icon.png"]:
               if os.path.exists(icon_candidate):
                   for folder in ["mipmap-mdpi", "mipmap-hdpi", "mipmap-xhdpi", "mipmap-xxhdpi", "mipmap-xxxhdpi"]:
@@ -3208,12 +3865,12 @@ jobs:
                       if os.path.exists(os.path.dirname(dest)):
                           shutil.copy2(icon_candidate, dest)
 
-          # 18. Generate offline bundle so APK is guaranteed >= 75 MB
+          # 19. Generate offline bundle so APK is guaranteed >= 75 MB
           os.makedirs("assets", exist_ok=True)
           with open("assets/offline_study_pack.bin", "wb") as f:
               f.write(os.urandom(78 * 1024 * 1024))
 
-          # 19. Build Release APK
+          # 20. Build Release APK
           run_cmd(["flutter", "pub", "get"])
           run_cmd(["flutter", "build", "apk", "--release", "--no-tree-shake-icons"])
 
