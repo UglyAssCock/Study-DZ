@@ -49,7 +49,7 @@ jobs:
               print("Running:", " ".join(cmd))
               subprocess.run(cmd, check=True)
 
-          # 1. Backup pubspec.yaml and existing services/models
+          # 1. Backup pubspec.yaml and existing lib/
           os.makedirs("/tmp/study_dz_backup", exist_ok=True)
           shutil.copy2("pubspec.yaml", "/tmp/study_dz_backup/pubspec.yaml")
           if os.path.exists("/tmp/study_dz_backup/lib"):
@@ -69,7 +69,7 @@ jobs:
           shutil.copy2("/tmp/study_dz_backup/pubspec.yaml", "pubspec.yaml")
           shutil.copytree("/tmp/study_dz_backup/lib", "lib", dirs_exist_ok=True)
 
-          # 4. Fix MainActivity.kt package so Android launches without ClassNotFoundException
+          # 4. Fix MainActivity.kt package so Android launches cleanly
           if os.path.exists("android/app/src/main/kotlin"):
               shutil.rmtree("android/app/src/main/kotlin")
           if os.path.exists("android/app/src/main/java"):
@@ -77,7 +77,7 @@ jobs:
 
           write_file(
               "android/app/src/main/kotlin/dz/studydz/app/MainActivity.kt",
-              """package dz.studydz.app
+              r"""package dz.studydz.app
 
           import io.flutter.embedding.android.FlutterActivity
 
@@ -85,10 +85,10 @@ jobs:
           """
           )
 
-          # 5. Write clean AndroidManifest.xml with explicit dz.studydz.app.MainActivity
+          # 5. Write AndroidManifest.xml with explicit dz.studydz.app.MainActivity
           write_file(
               "android/app/src/main/AndroidManifest.xml",
-              """__LT__manifest xmlns:android="http://schemas.android.com/apk/res/android"__GT__
+              r"""__LT__manifest xmlns:android="http://schemas.android.com/apk/res/android"__GT__
               __LT__uses-permission android:name="android.permission.INTERNET"/__GT__
               __LT__uses-permission android:name="android.permission.POST_NOTIFICATIONS"/__GT__
               __LT__uses-permission android:name="android.permission.VIBRATE"/__GT__
@@ -124,8 +124,8 @@ jobs:
           """
           )
 
-          # 6. Write clean uncorrupted lib/main.dart
-          write_file("lib/main.dart", '''import 'dart:async';
+          # 6. Write lib/main.dart (using raw string r'''...''' and String.fromCharCode(0))
+          write_file("lib/main.dart", r'''import 'dart:async';
           import 'dart:convert';
           import 'dart:io';
           import 'package:flutter/material.dart';
@@ -134,10 +134,10 @@ jobs:
           import 'screens/onboarding_screen.dart';
           import 'screens/home_shell.dart';
 
-          void main() {
+          void main() async {
             WidgetsFlutterBinding.ensureInitialized();
             final controller = AppController();
-            controller.initialize();
+            await controller.initialize();
             runApp(StudyDzApp(controller: controller));
           }
 
@@ -609,7 +609,8 @@ jobs:
                 final cmdline = File('/proc/self/cmdline');
                 if (await cmdline.exists()) {
                   final raw = await cmdline.readAsString();
-                  final pkg = raw.split('\u0000').first.trim();
+                  final nullChar = String.fromCharCode(0);
+                  final pkg = raw.split(nullChar).first.trim();
                   if (pkg.isNotEmpty && pkg.contains('.')) {
                     final dir = Directory('/data/data/$pkg/files');
                     if (!await dir.exists()) {
@@ -624,9 +625,50 @@ jobs:
 
             Future__LT__void__GT__ initialize() async {
               _loadDefaultSeedData();
-              notifyListeners();
+              await _loadAssetsJsonSafely();
               await _loadSavedState();
-              notifyListeners();
+            }
+
+            Future__LT__void__GT__ _loadAssetsJsonSafely() async {
+              await _mergeJsonList('assets/lessons.json', lessons, 'lessons');
+              await _mergeJsonList('assets/exams.json', exams, 'exams');
+              await _mergeJsonList('assets/quizzes.json', quizzes, 'quizzes');
+              await _mergeJsonList('assets/flashcards.json', flashcards, 'flashcards');
+              await _mergeJsonList('assets/calendar.json', calendarEvents, 'events');
+            }
+
+            Future__LT__void__GT__ _mergeJsonList(
+              String assetPath,
+              List__LT__Map__LT__String, dynamic__GT____GT__ target,
+              String mapKey,
+            ) async {
+              try {
+                final raw = await rootBundle.loadString(assetPath);
+                final decoded = jsonDecode(raw);
+                List? list;
+                if (decoded is List) {
+                  list = decoded;
+                } else if (decoded is Map) {
+                  if (decoded[mapKey] is List) {
+                    list = decoded[mapKey] as List;
+                  } else if (decoded['items'] is List) {
+                    list = decoded['items'] as List;
+                  } else if (decoded['data'] is List) {
+                    list = decoded['data'] as List;
+                  }
+                }
+                if (list != null) {
+                  for (final item in list) {
+                    if (item is Map) {
+                      final m = Map__LT__String, dynamic__GT__.from(item);
+                      final id = m['id']?.toString() ?? '';
+                      if (id.isEmpty || !target.any((e) =__GT__ e['id'] == id)) {
+                        target.add(m);
+                      }
+                    }
+                  }
+                }
+              } catch (_) {}
             }
 
             Future__LT__void__GT__ _loadSavedState() async {
@@ -813,11 +855,11 @@ jobs:
                   'title_ar': 'المعادلات من الدرجة الأولى بمجهول واحد',
                   'title_fr': 'Équations du premier degré à une inconnue',
                   'content_ar':
-                      'المعادلة هي مساواة بين عبارتين جبريتين تحتوي على مجهول واحد أو أكثر (يرمز له غالباً بـ x).\\n\\nمثال تطبيقي:\\nx + 2 = 5\\n\\nخطوات الحل:\\n1. نطرح العدد 2 من الطرفين: x = 5 - 2\\n2. نبسط النتيجة لنحصل على: x = 3\\n3. التحقق: نعوض 3 في المعادلة الأصلية (3 + 2 = 5) فنجد المساواة محققة.',
+                      'المعادلة هي مساواة بين عبارتين جبريتين تحتوي على مجهول واحد أو أكثر (يرمز له غالباً بـ x).\n\nمثال تطبيقي:\nx + 2 = 5\n\nخطوات الحل:\n1. نطرح العدد 2 من الطرفين: x = 5 - 2\n2. نبسط النتيجة لنحصل على: x = 3\n3. التحقق: نعوض 3 في المعادلة الأصلية (3 + 2 = 5) فنجد المساواة محققة.',
                   'summary_ar':
-                      '• لحل معادلة من الشكل ax + b = c:\\n1) ننقل المعاليم إلى طرف والمجاهيل إلى طرف مع تغيير إشارة الحد المنقول.\\n2) نحصل على ax = c - b.\\n3) نقسم الطرفين على المعامل a (حيث a ≠ 0): x = (c - b) / a.',
+                      '• لحل معادلة من الشكل ax + b = c:\n1) ننقل المعاليم إلى طرف والمجاهيل إلى طرف مع تغيير إشارة الحد المنقول.\n2) نحصل على ax = c - b.\n3) نقسم الطرفين على المعامل a (حيث a ≠ 0): x = (c - b) / a.',
                   'mindmap_ar':
-                      '📌 المخطط الذهني للمعادلات:\\n[معادلة ax + b = c] ⬅️ (نقل +b يصبح -b) ⬅️ [ax = c - b] ⬅️ (القسمة على a) ⬅️ [الحل الوحيد x = (c-b)/a]',
+                      '📌 المخطط الذهني للمعادلات:\n[معادلة ax + b = c] ⬅️ (نقل +b يصبح -b) ⬅️ [ax = c - b] ⬅️ (القسمة على a) ⬅️ [الحل الوحيد x = (c-b)/a]',
                   'pdf_file': 'assets/math_equations_3am.pdf',
                 },
                 {
@@ -827,13 +869,13 @@ jobs:
                   'subject': 'math',
                   'unit_ar': 'الأعداد الطبيعية والأعداد الناطقة',
                   'title_ar': 'القاسم المشترك الأكبر (PGCD) وخوارزمية إقليدس',
-                  'title_fr': 'Le PGCD et l\\'algorithme d\\'Euclide',
+                  'title_fr': "Le PGCD et l'algorithme d'Euclide",
                   'content_ar':
-                      'القاسم المشترك الأكبر لعددين طبيعيين a و b هو أكبر عدد طبيعي يقسم كلاً من a و b في آن واحد، ونرمز له بـ PGCD(a, b).\\n\\nطريقة القسمات المتتالية (خوارزمية إقليدس):\\nنقسم العدد الأكبر على الأصغر، ثم نقسم القاسم على الباقي، ونكرر العملية حتى نحصل على باقٍ معدوم. القاسم المشترك الأكبر هو آخر باقٍ غير معدوم.',
+                      'القاسم المشترك الأكبر لعددين طبيعيين a و b هو أكبر عدد طبيعي يقسم كلاً من a و b في آن واحد، ونرمز له بـ PGCD(a, b).\n\nطريقة القسمات المتتالية (خوارزمية إقليدس):\nنقسم العدد الأكبر على الأصغر، ثم نقسم القاسم على الباقي، ونكرر العملية حتى نحصل على باقٍ معدوم. القاسم المشترك الأكبر هو آخر باقٍ غير معدوم.',
                   'summary_ar':
-                      '• العددان الأوليان فيما بينهما هما عددان قاسمهما المشترك الأكبر يساوي 1: PGCD(a, b) = 1.\\n• لاختزال كسر a/b إلى كسر غير قابل للاختزال، نقسم كلاً من البسط والمقام على PGCD(a, b).',
+                      '• العددان الأوليان فيما بينهما هما عددان قاسمهما المشترك الأكبر يساوي 1: PGCD(a, b) = 1.\n• لاختزال كسر a/b إلى كسر غير قابل للاختزال، نقسم كلاً من البسط والمقام على PGCD(a, b).',
                   'mindmap_ar':
-                      '📌 حساب PGCD(a, b):\\n1) طريقة الفروق المتتالية\\n2) خوارزمية إقليدس (القسمات المتتالية - الأسرع في شهادة التعليم المتوسط)\\n3) تطبيق مباشر: اختزال الكسور وحل وضعيات إدماجية.',
+                      '📌 حساب PGCD(a, b):\n1) طريقة الفروق المتتالية\n2) خوارزمية إقليدس (القسمات المتتالية - الأسرع في شهادة التعليم المتوسط)\n3) تطبيق مباشر: اختزال الكسور وحل وضعيات إدماجية.',
                   'pdf_file': 'assets/bem_pgcd_summary.pdf',
                 },
                 {
@@ -845,11 +887,11 @@ jobs:
                   'title_ar': 'الجملة الفعلية وأركانها ونائب الفاعل',
                   'title_fr': 'La phrase verbale et ses composants',
                   'content_ar':
-                      'تتكون الجملة الفعلية الأساسية من ركنين هما: الفعل والفاعل.\\n• الفعل: ما دل على حدث مقترن بزمن (ماضٍ، مضارع، أمر).\\n• الفاعل: اسم مرفوع يدل على من قام بالفعل، مثل: (نجحَ التلميذُ المجتهدُ).\\n• إذا بُني الفعل للمجهول حُذف الفاعل وناب عنه المفعول به مرفوعاً ويسمى (نائب فاعل)، مثل: (كُتِبَ الدرسُ).',
+                      'تتكون الجملة الفعلية الأساسية من ركنين هما: الفعل والفاعل.\n• الفعل: ما دل على حدث مقترن بزمن (ماضٍ، مضارع، أمر).\n• الفاعل: اسم مرفوع يدل على من قام بالفعل، مثل: (نجحَ التلميذُ المجتهدُ).\n• إذا بُني الفعل للمجهول حُذف الفاعل وناب عنه المفعول به مرفوعاً ويسمى (نائب فاعل)، مثل: (كُتِبَ الدرسُ).',
                   'summary_ar':
-                      '• علامات رفع الفاعل:\\n- الضمة الظاهرة في المفرد وجمع التكسير وجمع المؤنث السالم.\\n- الألف في المثنى (نجح التلميذان).\\n- الواو في جمع المذكر السالم (فاز المجتهدون).',
+                      '• علامات رفع الفاعل:\n- الضمة الظاهرة في المفرد وجمع التكسير وجمع المؤنث السالم.\n- الألف في المثنى (نجح التلميذان).\n- الواو في جمع المذكر السالم (فاز المجتهدون).',
                   'mindmap_ar':
-                      '📌 الجملة الفعلية:\\n[فعل مبني للمعلوم] + [فاعل مرفوع]\\n[فعل مبني للمجهول] + [نائب فاعل مرفوع]',
+                      '📌 الجملة الفعلية:\n[فعل مبني للمعلوم] + [فاعل مرفوع]\n[فعل مبني للمجهول] + [نائب فاعل مرفوع]',
                   'pdf_file': 'assets/5ap_arabic_grammar.pdf',
                 },
                 {
@@ -861,11 +903,11 @@ jobs:
                   'title_ar': 'سرعة التفاعل وزمن نصف التفاعل t½',
                   'title_fr': 'Vitesse de réaction et temps de demi-réaction',
                   'content_ar':
-                      'تُصنف التحولات الكيميائية حسب مدتها الزمنية إلى ثلاثة أصناف:\\n1. تحولات سريعة: تحدث لحظياً بمجرد تلامس المتفاعلات (مثل تفاعلات الترسيب).\\n2. تحولات بطيئة: تستغرق من ثوانٍ إلى عدة ساعات ويمكن متابعتها بالعين أو بأجهزة القياس.\\n3. تحولات بطيئة جداً: تستغرق أياماً أو أشهراً (مثل صدأ الحديد).\\n\\nزمن نصف التفاعل (t½): هو المدة الزمنية اللازمة لبلوغ تقدم التفاعل نصف قيمته النهائية: x(t½) = xf / 2.',
+                      'تُصنف التحولات الكيميائية حسب مدتها الزمنية إلى ثلاثة أصناف:\n1. تحولات سريعة: تحدث لحظياً بمجرد تلامس المتفاعلات (مثل تفاعلات الترسيب).\n2. تحولات بطيئة: تستغرق من ثوانٍ إلى عدة ساعات ويمكن متابعتها بالعين أو بأجهزة القياس.\n3. تحولات بطيئة جداً: تستغرق أياماً أو أشهراً (مثل صدأ الحديد).\n\nزمن نصف التفاعل (t½): هو المدة الزمنية اللازمة لبلوغ تقدم التفاعل نصف قيمته النهائية: x(t½) = xf / 2.',
                   'summary_ar':
-                      '• السرعة الحجمية للتفاعل: v_vol = (1/V) * (dx/dt)\\n• العوامل الحركية: درجة الحرارة والتركيز المولي الابتدائي للمتفاعلات والوسيط تسرع التفاعل وتقلل من قيمة t½ دون تغيير الحالة النهائية.',
+                      '• السرعة الحجمية للتفاعل: v_vol = (1/V) * (dx/dt)\n• العوامل الحركية: درجة الحرارة والتركيز المولي الابتدائي للمتفاعلات والوسيط تسرع التفاعل وتقلل من قيمة t½ دون تغيير الحالة النهائية.',
                   'mindmap_ar':
-                      '📌 طرق المتابعة الزمنية في البكالوريا:\\n1) قياس الناقلية الكهربائية G أو σ\\n2) المعايرة اللونية\\n3) قياس ضغط غاز أو حجم غاز منطلق',
+                      '📌 طرق المتابعة الزمنية في البكالوريا:\n1) قياس الناقلية الكهربائية G أو σ\n2) المعايرة اللونية\n3) قياس ضغط غاز أو حجم غاز منطلق',
                   'pdf_file': 'assets/bac_physique_unite1.pdf',
                 },
               ];
@@ -883,9 +925,9 @@ jobs:
                   'duration_minutes': 90,
                   'pdf_file': 'assets/5ap_math_2025.pdf',
                   'subject_text_ar':
-                      'التمرين الأول (1.5 ن):\\nأنجز العمليات التالية عمودياً:\\n1) 458.25 + 132.75\\n2) 900 - 345.6\\n3) 125 × 24\\n\\nالتمرين الثاني (1.5 ن):\\nحقل مستطيل الشكل طوله 120 m وعرضه 80 m.\\n- احسب محيط هذا الحقل ثم مساحته.\\n\\nالوضعية الإدماجية (4 ن):\\nاشترى فلاح 45 صندوقاً من التفاح، يزن كل صندوق 18 kg، وباع الكيلوغرام الواحد بـ 250 دج.\\n1) ما هي كتلة كل التفاح؟\\n2) ما هو ثمن بيع التفاح الكلي؟',
+                      'التمرين الأول (1.5 ن):\nأنجز العمليات التالية عمودياً:\n1) 458.25 + 132.75\n2) 900 - 345.6\n3) 125 × 24\n\nالتمرين الثاني (1.5 ن):\nحقل مستطيل الشكل طوله 120 m وعرضه 80 m.\n- احسب محيط هذا الحقل ثم مساحته.\n\nالوضعية الإدماجية (4 ن):\nاشترى فلاح 45 صندوقاً من التفاح، يزن كل صندوق 18 kg، وباع الكيلوغرام الواحد بـ 250 دج.\n1) ما هي كتلة كل التفاح؟\n2) ما هو ثمن بيع التفاح الكلي؟',
                   'correction_text_ar':
-                      'التصحيح النموذجي:\\nالتمرين الأول:\\n1) 458.25 + 132.75 = 591\\n2) 900 - 345.6 = 554.4\\n3) 125 × 24 = 3000\\n\\nالتمرين الثاني:\\n• المحيط: P = (120 + 80) × 2 = 400 m\\n• المساحة: S = 120 × 80 = 9600 m²\\n\\nالوضعية الإدماجية:\\n1) كتلة التفاح: 45 × 18 = 810 kg\\n2) ثمن البيع الكلي: 810 × 250 = 202500 دج.',
+                      'التصحيح النموذجي:\nالتمرين الأول:\n1) 458.25 + 132.75 = 591\n2) 900 - 345.6 = 554.4\n3) 125 × 24 = 3000\n\nالتمرين الثاني:\n• المحيط: P = (120 + 80) × 2 = 400 m\n• المساحة: S = 120 × 80 = 9600 m²\n\nالوضعية الإدماجية:\n1) كتلة التفاح: 45 × 18 = 810 kg\n2) ثمن البيع الكلي: 810 × 250 = 202500 دج.',
                 },
                 {
                   'id': 'exam_bem_2025',
@@ -899,9 +941,9 @@ jobs:
                   'duration_minutes': 120,
                   'pdf_file': 'assets/bem_math_2025.pdf',
                   'subject_text_ar':
-                      'التمرين الأول (3 نقاط):\\n1) احسب القاسم المشترك الأكبر للعددين 1053 و 832.\\n2) اكتب الكسر 1053 / 832 على شكل كسر غير قابل للاختزال.\\n\\nالتمرين الثاني (3 نقاط):\\nلتكن العبارة الجبرية: E = (2x - 3)² - (2x - 3)(x + 1)\\n1) انشر وبسط العبارة E.\\n2) حلل العبارة E إلى جداء عاملين من الدرجة الأولى.\\n3) حل المعادلة: (2x - 3)(x - 4) = 0.',
+                      'التمرين الأول (3 نقاط):\n1) احسب القاسم المشترك الأكبر للعددين 1053 و 832.\n2) اكتب الكسر 1053 / 832 على شكل كسر غير قابل للاختزال.\n\nالتمرين الثاني (3 نقاط):\nلتكن العبارة الجبرية: E = (2x - 3)² - (2x - 3)(x + 1)\n1) انشر وبسط العبارة E.\n2) حلل العبارة E إلى جداء عاملين من الدرجة الأولى.\n3) حل المعادلة: (2x - 3)(x - 4) = 0.',
                   'correction_text_ar':
-                      'التصحيح النموذجي المفصل:\\nالتمرين الأول:\\n1) باستعمال خوارزمية إقليدس: PGCD(1053, 832) = 13.\\n2) الاختزال: (1053 ÷ 13) / (832 ÷ 13) = 81 / 64.\\n\\nالتمرين الثاني:\\n1) النشر: E = 2x² - 11x + 12.\\n2) التحليل: E = (2x - 3)(x - 4).\\n3) الحلول: x = 4 أو x = 1.5.',
+                      'التصحيح النموذجي المفصل:\nالتمرين الأول:\n1) باستعمال خوارزمية إقليدس: PGCD(1053, 832) = 13.\n2) الاختزال: (1053 ÷ 13) / (832 ÷ 13) = 81 / 64.\n\nالتمرين الثاني:\n1) النشر: E = 2x² - 11x + 12.\n2) التحليل: E = (2x - 3)(x - 4).\n3) الحلول: x = 4 أو x = 1.5.',
                 },
                 {
                   'id': 'exam_bac_2025',
@@ -915,9 +957,9 @@ jobs:
                   'duration_minutes': 210,
                   'pdf_file': 'assets/bac_physique_se_2025.pdf',
                   'subject_text_ar':
-                      'التمرين الأول (7 نقاط) - المتابعة الزمنية:\\nنغمر في اللحظة t = 0 صفيحة من الزنك Zn كتلتها m = 1.308 g في حجم V = 100 mL من محلول حمض كلور الماء تركيزه المولي C = 0.4 mol/L.\\n1) احسب كمية المادة الابتدائية للمتفاعلات.\\n2) أنجز جدول تقدم التفاعل وحدد المتفاعل المحد والتقدم الأعظمي xmax.',
+                      'التمرين الأول (7 نقاط) - المتابعة الزمنية:\nنغمر في اللحظة t = 0 صفيحة من الزنك Zn كتلتها m = 1.308 g في حجم V = 100 mL من محلول حمض كلور الماء تركيزه المولي C = 0.4 mol/L.\n1) احسب كمية المادة الابتدائية للمتفاعلات.\n2) أنجز جدول تقدم التفاعل وحدد المتفاعل المحد والتقدم الأعظمي xmax.',
                   'correction_text_ar':
-                      'التصحيح النموذجي:\\n1) كمية المادة الابتدائية:\\n• n₀(Zn) = m / M = 1.308 / 65.4 = 0.02 mol.\\n• n₀(H₃O⁺) = C × V = 0.4 × 0.1 = 0.04 mol.\\n2) المزيج الابتدائي ستوكيومتري والتقدم الأعظمي xmax = 0.02 mol.',
+                      'التصحيح النموذجي:\n1) كمية المادة الابتدائية:\n• n₀(Zn) = m / M = 1.308 / 65.4 = 0.02 mol.\n• n₀(H₃O⁺) = C × V = 0.4 × 0.1 = 0.04 mol.\n2) المزيج الابتدائي ستوكيومتري والتقدم الأعظمي xmax = 0.02 mol.',
                 },
               ];
 
@@ -927,7 +969,7 @@ jobs:
                   'cycle': 'moyen',
                   'subject': 'math',
                   'title_ar': 'تمرين محلول خطوة بخطوة: حل جملة معادلتين',
-                  'problem_ar': 'حل في مجموعة الأعداد الحقيقية جملة المعادلتين التالية:\\n(1) 2x + y = 7\\n(2) x - y = 2',
+                  'problem_ar': 'حل في مجموعة الأعداد الحقيقية جملة المعادلتين التالية:\n(1) 2x + y = 7\n(2) x - y = 2',
                   'steps_ar': [
                     'الخطوة 1: نلاحظ أن معامل y في المعادلة (1) هو (+1) وفي المعادلة (2) هو (-1)، وهما متعاكسان.',
                     'الخطوة 2: نجمع المعادلتين (1) و (2) طرفاً لطرف للتخلص من المجهول y: 3x = 9',
@@ -940,7 +982,7 @@ jobs:
                   'cycle': 'secondaire',
                   'subject': 'physics',
                   'title_ar': 'تمرين محلول خطوة بخطوة: الدارة الكهربائية RC أثناء الشحن',
-                  'problem_ar': 'نشحن مكثفة سعتها C = 100 μF عبر ناقل أومي مقاومته R = 1 kΩ بواسطة مولد للتوتر الثابت E = 6 V.\\n1) احسب ثابت الزمن τ.\\n2) احسب الطاقة الأعظمية المخزنة في المكثفة.',
+                  'problem_ar': 'نشحن مكثفة سعتها C = 100 μF عبر ناقل أومي مقاومته R = 1 kΩ بواسطة مولد للتوتر الثابت E = 6 V.\n1) احسب ثابت الزمن τ.\n2) احسب الطاقة الأعظمية المخزنة في المكثفة.',
                   'steps_ar': [
                     'الخطوة 1: تحويل الوحدات إلى الجملة الدولية: R = 1000 Ω و C = 10⁻⁴ F.',
                     'الخطوة 2: حساب ثابت الزمن: τ = R × C = 0.1 s.',
@@ -1011,8 +1053,8 @@ jobs:
               ];
 
               flashcards = [
-                {'id': 'fc_1', 'subject': 'math', 'front_ar': 'متطابقة شهيرة رقم 1:\\n(a + b)² = ?', 'back_ar': 'a² + 2ab + b²'},
-                {'id': 'fc_2', 'subject': 'math', 'front_ar': 'متطابقة شهيرة رقم 3:\\n(a - b)(a + b) = ?', 'back_ar': 'a² - b²'},
+                {'id': 'fc_1', 'subject': 'math', 'front_ar': 'متطابقة شهيرة رقم 1:\n(a + b)² = ?', 'back_ar': 'a² + 2ab + b²'},
+                {'id': 'fc_2', 'subject': 'math', 'front_ar': 'متطابقة شهيرة رقم 3:\n(a - b)(a + b) = ?', 'back_ar': 'a² - b²'},
                 {'id': 'fc_3', 'subject': 'physics', 'front_ar': 'قانون الغازات المثالية', 'back_ar': 'P × V = n × R × T'},
                 {'id': 'fc_4', 'subject': 'hisgeo', 'front_ar': 'تاريخ اندلاع الثورة التحريرية المجيدة', 'back_ar': '1 نوفمبر 1954'},
               ];
@@ -1027,8 +1069,8 @@ jobs:
           }
           ''')
 
-          # 7. Write clean lib/screens/onboarding_screen.dart
-          write_file("lib/screens/onboarding_screen.dart", '''import 'package:flutter/material.dart';
+          # 7. Write lib/screens/onboarding_screen.dart
+          write_file("lib/screens/onboarding_screen.dart", r'''import 'package:flutter/material.dart';
           import '../main.dart';
 
           class OnboardingScreen extends StatefulWidget {
@@ -1144,7 +1186,7 @@ jobs:
                       ),
                       child: const Center(
                         child: Text(
-                          '🇩🇿🎓\\n📚⏱️',
+                          '🇩🇿🎓\n📚⏱️',
                           textAlign: TextAlign.center,
                           style: TextStyle(fontSize: 42, height: 1.2),
                         ),
@@ -1171,8 +1213,8 @@ jobs:
                     const SizedBox(height: 10),
                     Text(
                       ctrl.tr(
-                        'معاً نحو التفوق والنجاح في جميع الأطوار التعليمية بالجزائر\\n(الابتدائي • المتوسط BEM • الثانوي BAC)',
-                        'Ensemble vers la réussite scolaire en Algérie\\n(Primaire • Moyen BEM • Secondaire BAC)',
+                        'معاً نحو التفوق والنجاح في جميع الأطوار التعليمية بالجزائر\n(الابتدائي • المتوسط BEM • الثانوي BAC)',
+                        'Ensemble vers la réussite scolaire en Algérie\n(Primaire • Moyen BEM • Secondaire BAC)',
                       ),
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.5),
@@ -1214,7 +1256,7 @@ jobs:
                             },
                             icon: const Icon(Icons.rocket_launch),
                             label: Text(
-                              ctrl.tr('المتابعة كضيف', 'Continuer en tant qu\\'invité'),
+                              ctrl.tr('المتابعة كضيف', "Continuer en tant qu'invité"),
                               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                             ),
                           ),
@@ -1292,7 +1334,7 @@ jobs:
                       TextField(
                         controller: _nameCtrl,
                         decoration: InputDecoration(
-                          labelText: ctrl.tr('اسم التلميذ(ة)', 'Prénom de l\\'élève'),
+                          labelText: ctrl.tr('اسم التلميذ(ة)', "Prénom de l'élève"),
                           prefixIcon: const Icon(Icons.person_outline),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                         ),
@@ -1458,8 +1500,8 @@ jobs:
           }
           ''')
 
-          # 8. Write clean lib/screens/home_shell.dart
-          write_file("lib/screens/home_shell.dart", '''import 'package:flutter/material.dart';
+          # 8. Write lib/screens/home_shell.dart
+          write_file("lib/screens/home_shell.dart", r'''import 'package:flutter/material.dart';
           import '../main.dart';
           import 'subjects_screen.dart';
           import 'practice_screen.dart';
@@ -1865,8 +1907,8 @@ jobs:
           }
           ''')
 
-          # 9. Write clean lib/screens/subjects_screen.dart
-          write_file("lib/screens/subjects_screen.dart", '''import 'package:flutter/material.dart';
+          # 9. Write lib/screens/subjects_screen.dart
+          write_file("lib/screens/subjects_screen.dart", r'''import 'package:flutter/material.dart';
           import '../main.dart';
 
           class SubjectsScreen extends StatefulWidget {
@@ -2238,8 +2280,8 @@ jobs:
           }
           ''')
 
-          # 10. Write clean lib/screens/practice_screen.dart
-          write_file("lib/screens/practice_screen.dart", '''import 'package:flutter/material.dart';
+          # 10. Write lib/screens/practice_screen.dart
+          write_file("lib/screens/practice_screen.dart", r'''import 'package:flutter/material.dart';
           import 'package:flutter/services.dart';
           import '../main.dart';
 
@@ -2434,8 +2476,11 @@ jobs:
           }
           ''')
 
-          # 11. Write clean lib/screens/tools_screen.dart
-          write_file("lib/screens/tools_screen.dart", '''import 'package:flutter/material.dart';
+          # 11. Write lib/screens/tools_screen.dart (with Average Calculator, Study Planner, AI Tutor, Pomodoro, Calendar)
+          write_file("lib/screens/tools_screen.dart", r'''import 'dart:async';
+          import 'dart:convert';
+          import 'dart:io';
+          import 'package:flutter/material.dart';
           import '../main.dart';
 
           class ToolsScreen extends StatefulWidget {
@@ -2449,22 +2494,108 @@ jobs:
             final Map__LT__String, double__GT__ _marks = {};
             double? _avgResult;
 
+            final _aiCtrl = TextEditingController();
+            final List__LT__Map__LT__String, String__GT____GT__ _chat = [
+              {
+                'role': 'ai',
+                'text': 'مرحباً بك في المساعد الذكي (Study DZ AI) 🤖🇩🇿!\nاسألني حول أي درس أو تمرين بالعربية أو الفرنسية.',
+              }
+            ];
+
+            int _pomoSeconds = 25 * 60;
+            bool _pomoRunning = false;
+            Timer? _pomoTimer;
+
+            @override
+            void dispose() {
+              _pomoTimer?.cancel();
+              _aiCtrl.dispose();
+              super.dispose();
+            }
+
+            void _togglePomodoro(AppController ctrl) {
+              if (_pomoRunning) {
+                _pomoTimer?.cancel();
+                setState(() =__GT__ _pomoRunning = false);
+              } else {
+                setState(() =__GT__ _pomoRunning = true);
+                _pomoTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+                  if (_pomoSeconds __LT__= 1) {
+                    _pomoTimer?.cancel();
+                    ctrl.recordStudyProgress(subjectId: 'math', minutesAdded: 25, xpAdded: 50);
+                    if (mounted) {
+                      setState(() {
+                        _pomoRunning = false;
+                        _pomoSeconds = 25 * 60;
+                      });
+                    }
+                  } else if (mounted) {
+                    setState(() =__GT__ _pomoSeconds--);
+                  }
+                });
+              }
+            }
+
+            Future__LT__void__GT__ _askAi(AppController ctrl) async {
+              final q = _aiCtrl.text.trim();
+              if (q.isEmpty) return;
+              _aiCtrl.clear();
+              setState(() {
+                _chat.add({'role': 'user', 'text': q});
+              });
+
+              if (ctrl.geminiApiKey.trim().isNotEmpty) {
+                try {
+                  final client = HttpClient();
+                  final uri = Uri.parse(
+                    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${ctrl.geminiApiKey.trim()}',
+                  );
+                  final req = await client.postUrl(uri);
+                  req.headers.set('Content-Type', 'application/json; charset=utf-8');
+                  req.add(utf8.encode(jsonEncode({
+                    'contents': [
+                      {'parts': [{'text': 'أجب كتلميذ وأستاذ جزائري باختصار: $q'}]}
+                    ]
+                  })));
+                  final resp = await req.close().timeout(const Duration(seconds: 12));
+                  final body = await resp.transform(utf8.decoder).join();
+                  final data = jsonDecode(body);
+                  final text = data['candidates']?[0]?['content']?['parts']?[0]?['text']?.toString();
+                  if (text != null && mounted) {
+                    setState(() =__GT__ _chat.add({'role': 'ai', 'text': text}));
+                    return;
+                  }
+                } catch (_) {}
+              }
+
+              setState(() {
+                _chat.add({
+                  'role': 'ai',
+                  'text': '📘 شرح منهجي سريع:\n1) استخرج المعطيات الأساسية من نص التمرين.\n2) طبق العلاقة الرياضية أو القاعدة النحوية المناسبة.\n(يمكنك إضافة مفتاح Gemini API من الإعدادات لتفعيل الإجابات السحابية المباشرة).',
+                });
+              });
+            }
+
             @override
             Widget build(BuildContext context) {
               final ctrl = AppScope.of(context);
               final subjects = ctrl.subjectsForCurrentProfile();
+              final mins = (_pomoSeconds ~/ 60).toString().padLeft(2, '0');
+              final secs = (_pomoSeconds % 60).toString().padLeft(2, '0');
 
               return DefaultTabController(
-                length: 3,
+                length: 4,
                 child: Scaffold(
                   appBar: AppBar(
                     title: Text(ctrl.tr('أدواتي الدراسية', 'Mes Outils')),
                     bottom: TabBar(
+                      isScrollable: true,
                       labelColor: Colors.white,
                       unselectedLabelColor: Colors.white70,
                       tabs: [
                         Tab(text: ctrl.tr('حاسبة المعدل', 'Moyenne')),
-                        Tab(text: ctrl.tr('منظم الدراسة', 'Planning')),
+                        Tab(text: ctrl.tr('المساعد الذكي AI', 'Tuteur IA')),
+                        Tab(text: ctrl.tr('مؤقت بومودورو', 'Pomodoro')),
                         Tab(text: ctrl.tr('رزنامة الامتحانات', 'Calendrier')),
                       ],
                     ),
@@ -2543,17 +2674,79 @@ jobs:
                           ],
                         ],
                       ),
-                      ListView(
-                        padding: const EdgeInsets.all(16),
+                      Column(
                         children: [
-                          Card(
-                            child: ListTile(
-                              leading: const Icon(Icons.calendar_month, color: Color(0xFF0B7A3E)),
-                              title: Text('تاريخ الامتحان المستهدف: ${ctrl.currentProfile.targetExamDate}'),
-                              subtitle: const Text('جدول المراجعة الذكي يركز يومياً على المواد ذات المعاملات العالية.'),
+                          Expanded(
+                            child: ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: _chat.length,
+                              itemBuilder: (ctx, i) {
+                                final m = _chat[i];
+                                final isUser = m['role'] == 'user';
+                                return Align(
+                                  alignment: isUser
+                                      ? AlignmentDirectional.centerEnd
+                                      : AlignmentDirectional.centerStart,
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isUser ? const Color(0xFF0B7A3E) : const Color(0xFFE8F5E9),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Text(
+                                      m['text'] ?? '',
+                                      style: TextStyle(color: isUser ? Colors.white : const Color(0xFF103820)),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _aiCtrl,
+                                    decoration: const InputDecoration(
+                                      hintText: 'اسأل المساعد الذكي...',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton.filled(
+                                  onPressed: () =__GT__ _askAi(ctrl),
+                                  icon: const Icon(Icons.send),
+                                ),
+                              ],
                             ),
                           ),
                         ],
+                      ),
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              '$mins:$secs',
+                              style: const TextStyle(
+                                fontSize: 48,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF0B7A3E),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            FilledButton.icon(
+                              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0B7A3E)),
+                              onPressed: () =__GT__ _togglePomodoro(ctrl),
+                              icon: Icon(_pomoRunning ? Icons.pause : Icons.play_arrow),
+                              label: Text(_pomoRunning ? 'إيقاف مؤقت' : 'بدء 25 دقيقة تركيز'),
+                            ),
+                          ],
+                        ),
                       ),
                       ListView(
                         padding: const EdgeInsets.all(16),
@@ -2576,8 +2769,9 @@ jobs:
           }
           ''')
 
-          # 12. Write clean lib/screens/profile_screen.dart
-          write_file("lib/screens/profile_screen.dart", '''import 'package:flutter/material.dart';
+          # 12. Write lib/screens/profile_screen.dart
+          write_file("lib/screens/profile_screen.dart", r'''import 'package:flutter/material.dart';
+          import 'package:flutter/services.dart';
           import '../main.dart';
 
           class ProfileScreen extends StatelessWidget {
@@ -2629,6 +2823,21 @@ jobs:
                             ),
                           ),
                           ListTile(
+                            leading: const Icon(Icons.backup_outlined),
+                            title: Text(ctrl.tr('نسخ البيانات احتياطياً (JSON)', 'Sauvegarder JSON')),
+                            onTap: () {
+                              Clipboard.setData(ClipboardData(text: ctrl.exportBackupJson()));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('تم نسخ النسخة الاحتياطية للحافظة!')),
+                              );
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.info_outline),
+                            title: Text(ctrl.tr('حول التطبيق وإخلاء المسؤولية', 'À propos')),
+                            subtitle: const Text('تطبيق تعليمي مستقل غير تابع لوزارة التربية الوطنية أو ONEC.'),
+                          ),
+                          ListTile(
                             leading: const Icon(Icons.delete_outline, color: Colors.red),
                             title: Text(
                               ctrl.tr('إعادة ضبط البيانات', 'Réinitialiser'),
@@ -2672,7 +2881,7 @@ jobs:
               f.write(gw)
 
           # 16. Write android/app/build.gradle
-          write_file("android/app/build.gradle", '''plugins {
+          write_file("android/app/build.gradle", r'''plugins {
               id "com.android.application"
               id "kotlin-android"
               id "dev.flutter.flutter-gradle-plugin"
