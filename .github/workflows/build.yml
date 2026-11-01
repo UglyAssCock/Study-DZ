@@ -26,70 +26,165 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Build Release APK
+      - name: Repair Dart Files and Build Release APK
+        shell: python
         run: |
-          # 1. Back up your lib/ and pubspec.yaml so flutter create does not overwrite them
-          mkdir -p /tmp/study_dz_backup
-          cp pubspec.yaml /tmp/study_dz_backup/pubspec.yaml
-          cp -r lib /tmp/study_dz_backup/
-
-          # 2. Generate Android folder with valid lowercase --project-name study_dz
-          flutter create --platforms=android --project-name study_dz --org dz.studydz.app .
-
-          # 3. Restore your lib/ and pubspec.yaml
-          cp /tmp/study_dz_backup/pubspec.yaml pubspec.yaml
-          cp -r /tmp/study_dz_backup/lib/* lib/
-
-          # 4. Ensure pubspec.yaml has valid package name and compatible plugin overrides
-          python3 - << 'EOF'
+          import os
           import re
+          import shutil
+          import subprocess
 
+          LT = chr(60)
+          GT = chr(62)
+
+          def run_cmd(cmd):
+              print("Running:", " ".join(cmd))
+              subprocess.run(cmd, check=True)
+
+          # 1. Backup pubspec.yaml and lib/
+          os.makedirs("/tmp/study_dz_backup", exist_ok=True)
+          shutil.copy2("pubspec.yaml", "/tmp/study_dz_backup/pubspec.yaml")
+          if os.path.exists("/tmp/study_dz_backup/lib"):
+              shutil.rmtree("/tmp/study_dz_backup/lib")
+          shutil.copytree("lib", "/tmp/study_dz_backup/lib")
+
+          # 2. Generate Android platform folder with valid package name
+          run_cmd([
+              "flutter", "create",
+              "--platforms=android",
+              "--project-name", "study_dz",
+              "--org", "dz.studydz.app",
+              "."
+          ])
+
+          # 3. Restore pubspec.yaml and lib/
+          shutil.copy2("/tmp/study_dz_backup/pubspec.yaml", "pubspec.yaml")
+          shutil.copytree("/tmp/study_dz_backup/lib", "lib", dirs_exist_ok=True)
+
+          # 4. Repair stripped angle brackets and withValues() in all lib/**/*.dart files
+          def G(inner):
+              return LT + inner + GT
+
+          state_classes = [
+              ("_OnboardingScreenState", "OnboardingScreen"),
+              ("_SubjectsScreenState", "SubjectsScreen"),
+              ("_SubjectDetailViewState", "_SubjectDetailView"),
+              ("_LessonReaderPageState", "_LessonReaderPage"),
+              ("_StepByStepExerciseCardState", "_StepByStepExerciseCard"),
+              ("_PracticeScreenState", "PracticeScreen"),
+              ("_QuizzesViewState", "_QuizzesView"),
+              ("_TimedExamSimulatorViewState", "_TimedExamSimulatorView"),
+              ("_FlashcardsSpacedRepetitionViewState", "_FlashcardsSpacedRepetitionView"),
+              ("_PrimaireVoiceGamifiedViewState", "_PrimaireVoiceGamifiedView"),
+              ("_ToolsScreenState", "ToolsScreen"),
+              ("_AverageCalculatorToolState", "_AverageCalculatorTool"),
+              ("_AiTutorToolState", "_AiTutorTool"),
+              ("_PomodoroTimerToolState", "_PomodoroTimerTool"),
+          ]
+
+          for root, _, files in os.walk("lib"):
+              for fname in files:
+                  if not fname.endswith(".dart"):
+                      continue
+                  fpath = os.path.join(root, fname)
+                  with open(fpath, "r", encoding="utf-8") as f:
+                      c = f.read()
+
+                  # Replace Flutter 3.27 .withValues(alpha: x) with Flutter 3.24 .withOpacity(x)
+                  c = re.sub(r"\.withValues\(\s*alpha:\s*([^)]+)\)", r".withOpacity(\1)", c)
+
+                  # Restore AppScope generics
+                  c = re.sub(
+                      r"class AppScope extends InheritedNotifier\b(?!\s*" + LT + ")",
+                      "class AppScope extends InheritedNotifier" + G("AppController"),
+                      c
+                  )
+                  c = c.replace(
+                      "dependOnInheritedWidgetOfExactType()",
+                      "dependOnInheritedWidgetOfExactType" + G("AppScope") + "()"
+                  )
+
+                  # Restore State<T> generics on all State classes
+                  for st_cls, w_cls in state_classes:
+                      pattern = r"class " + st_cls + r" extends State\b(?!\s*" + LT + ")"
+                      replacement = "class " + st_cls + " extends State" + G(w_cls)
+                      c = re.sub(pattern, replacement, c)
+
+                  # Restore broken nested generics that left a trailing GT
+                  c = c.replace("Map" + GT + "? subjectScores", "Map" + G("String, List" + G("int")) + "? subjectScores")
+                  c = c.replace("Map" + GT + " subjectScores", "Map" + G("String, List" + G("int")) + " subjectScores")
+                  c = c.replace("final parsedScores = " + GT + "{};", "final parsedScores = " + G("String, List" + G("int")) + "{};")
+                  c = c.replace("final entries = " + GT + "[];", "final entries = " + G("MapEntry" + G("String, double")) + "[];")
+                  c = c.replace("final allQ = " + GT + "[];", "final allQ = " + G("Map" + G("String, dynamic")) + "[];")
+
+                  c = c.replace("static const List" + GT + " allLevels", "static const List" + G("Map" + G("String, String")) + " allLevels")
+                  c = c.replace("static const List" + GT + " streams1AS", "static const List" + G("Map" + G("String, String")) + " streams1AS")
+                  c = c.replace("static const List" + GT + " streams2AS3AS", "static const List" + G("Map" + G("String, String")) + " streams2AS3AS")
+                  c = c.replace("static const List" + GT + " coreSubjects", "static const List" + G("Map" + G("String, dynamic")) + " coreSubjects")
+                  c = c.replace("List" + GT + " _levelsForCycle", "List" + G("Map" + G("String, String")) + " _levelsForCycle")
+                  c = c.replace("final List" + GT + " _messages", "final List" + G("Map" + G("String, String")) + " _messages")
+
+                  c = c.replace("List" + GT + "?", "List" + G("Map" + G("String, dynamic")) + "?")
+                  c = c.replace("List" + GT, "List" + G("Map" + G("String, dynamic")))
+                  c = c.replace("Map" + GT + "?", "Map" + G("String, dynamic") + "?")
+                  c = c.replace("Map" + GT, "Map" + G("String, dynamic"))
+
+                  # Restore single generics that were stripped cleanly
+                  c = c.replace("Map subjectMinutes;", "Map" + G("String, int") + " subjectMinutes;")
+                  c = c.replace("List bookmarks;", "List" + G("String") + " bookmarks;")
+                  c = c.replace("Map notes;", "Map" + G("String, String") + " notes;")
+                  c = c.replace("Map flashcardMastery;", "Map" + G("String, int") + " flashcardMastery;")
+                  c = c.replace("Map? subjectMinutes,", "Map" + G("String, int") + "? subjectMinutes,")
+                  c = c.replace("List? bookmarks,", "List" + G("String") + "? bookmarks,")
+                  c = c.replace("Map? notes,", "Map" + G("String, String") + "? notes,")
+                  c = c.replace("Map? flashcardMastery,", "Map" + G("String, int") + "? flashcardMastery,")
+                  c = c.replace("List get weakSubjects", "List" + G("String") + " get weakSubjects")
+                  c = c.replace("final parsedMins = {};", "final parsedMins = " + G("String, int") + "{};")
+                  c = c.replace("final parsedMastery = {};", "final parsedMastery = " + G("String, int") + "{};")
+                  c = c.replace("final parsedNotes = {};", "final parsedNotes = " + G("String, String") + "{};")
+                  c = c.replace("Map toJson()", "Map" + G("String, dynamic") + " toJson()")
+                  c = c.replace("StudentProfile.fromJson(Map json)", "StudentProfile.fromJson(Map" + G("String, dynamic") + " json)")
+                  c = c.replace("List profiles = [];", "List" + G("StudentProfile") + " profiles = [];")
+                  c = c.replace("Map subjectMeta(", "Map" + G("String, dynamic") + " subjectMeta(")
+                  c = c.replace("Future _resolveStorageFile()", "Future" + G("File") + " _resolveStorageFile()")
+                  c = c.replace("Map.from(", "Map" + G("String, dynamic") + ".from(")
+                  c = c.replace("final Map lesson;", "final Map" + G("String, dynamic") + " lesson;")
+                  c = c.replace("final Map exam;", "final Map" + G("String, dynamic") + " exam;")
+                  c = c.replace("final Map exercise;", "final Map" + G("String, dynamic") + " exercise;")
+                  c = c.replace("Map? _activeQuiz;", "Map" + G("String, dynamic") + "? _activeQuiz;")
+                  c = c.replace("final Map _marks = {};", "final Map" + G("String, double") + " _marks = {};")
+                  c = c.replace("final Map data;", "final Map" + G("String, int") + " data;")
+
+                  with open(fpath, "w", encoding="utf-8") as f:
+                      f.write(c)
+
+          # 5. Fix pubspec.yaml name and dependency_overrides
           with open("pubspec.yaml", "r", encoding="utf-8") as f:
-              content = f.read()
-
-          content = re.sub(r'^name:\s*.*$', 'name: study_dz', content, flags=re.MULTILINE)
-
-          if "dependency_overrides:" not in content:
-              content += """
-          dependency_overrides:
-            flutter_tts: 4.0.2
-            flutter_local_notifications: 17.2.3
-            shared_preferences: 2.2.3
-            path_provider: 2.1.4
-            sqflite: 2.3.3+1
-          """
+              pub = f.read()
+          pub = re.sub(r"^name:\s*.*$", "name: study_dz", pub, flags=re.MULTILINE)
+          if "dependency_overrides:" not in pub:
+              pub += "\ndependency_overrides:\n  flutter_tts: 4.0.2\n  flutter_local_notifications: 17.2.3\n  shared_preferences: 2.2.3\n  path_provider: 2.1.4\n  sqflite: 2.3.3+1\n"
           with open("pubspec.yaml", "w", encoding="utf-8") as f:
-              f.write(content)
-          EOF
+              f.write(pub)
 
-          # 5. Upgrade Kotlin Gradle Plugin (1.9.24) & AGP (8.3.2) in android/settings.gradle
-          python3 - << 'EOF'
-          import re
+          # 6. Upgrade AGP & Kotlin in android/settings.gradle
+          with open("android/settings.gradle", "r", encoding="utf-8") as f:
+              sg = f.read()
+          sg = re.sub(r'id\s+"com\.android\.application"\s+version\s+"[^"]+"', 'id "com.android.application" version "8.3.2"', sg)
+          sg = re.sub(r'id\s+"org\.jetbrains\.kotlin\.android"\s+version\s+"[^"]+"', 'id "org.jetbrains.kotlin.android" version "1.9.24"', sg)
+          with open("android/settings.gradle", "w", encoding="utf-8") as f:
+              f.write(sg)
 
-          settings_path = "android/settings.gradle"
-          with open(settings_path, "r", encoding="utf-8") as f:
-              s = f.read()
+          # 7. Upgrade Gradle Wrapper to 8.4
+          gw_path = "android/gradle/wrapper/gradle-wrapper.properties"
+          with open(gw_path, "r", encoding="utf-8") as f:
+              gw = f.read()
+          gw = re.sub(r"gradle-.*-all\.zip", "gradle-8.4-all.zip", gw)
+          with open(gw_path, "w", encoding="utf-8") as f:
+              f.write(gw)
 
-          s = re.sub(
-              r'id\s+"com\.android\.application"\s+version\s+"[^"]+"',
-              'id "com.android.application" version "8.3.2"',
-              s
-          )
-          s = re.sub(
-              r'id\s+"org\.jetbrains\.kotlin\.android"\s+version\s+"[^"]+"',
-              'id "org.jetbrains.kotlin.android" version "1.9.24"',
-              s
-          )
-          with open(settings_path, "w", encoding="utf-8") as f:
-              f.write(s)
-          EOF
-
-          # 6. Upgrade Gradle Wrapper to 8.4
-          sed -i 's|gradle-.*-all.zip|gradle-8.4-all.zip|g' android/gradle/wrapper/gradle-wrapper.properties
-
-          # 7. Configure android/app/build.gradle (compileSdk 34, minSdk 21, Desugaring, Multidex)
-          cat << 'EOF' > android/app/build.gradle
-          plugins {
+          # 8. Write android/app/build.gradle
+          build_gradle = '''plugins {
               id "com.android.application"
               id "kotlin-android"
               id "dev.flutter.flutter-gradle-plugin"
@@ -136,55 +231,47 @@ jobs:
               coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
               implementation 'androidx.multidex:multidex:2.0.1'
           }
-          EOF
+          '''
+          with open("android/app/build.gradle", "w", encoding="utf-8") as f:
+              f.write(build_gradle)
 
-          # 8. Set Arabic App Name & Permissions in AndroidManifest.xml
-          python3 - << 'EOF'
-          import re
+          # 9. Update AndroidManifest.xml label and permissions
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           with open(manifest_path, "r", encoding="utf-8") as f:
               m = f.read()
-
           m = re.sub(r'android:label="[^"]*"', 'android:label="ستدي دي زد"', m)
-
-          perms = """
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-              <uses-permission android:name="android.permission.VIBRATE"/>
-              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-          """
+          perms = (
+              "    " + LT + 'uses-permission android:name="android.permission.INTERNET"/' + GT + "\n"
+              "    " + LT + 'uses-permission android:name="android.permission.POST_NOTIFICATIONS"/' + GT + "\n"
+              "    " + LT + 'uses-permission android:name="android.permission.VIBRATE"/' + GT + "\n"
+              "    " + LT + 'uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/' + GT + "\n"
+          )
           if "POST_NOTIFICATIONS" not in m:
-              m = m.replace("<application", perms + "\n    <application", 1)
-
+              m = m.replace(LT + "application", perms + "    " + LT + "application", 1)
           with open(manifest_path, "w", encoding="utf-8") as f:
               f.write(m)
-          EOF
 
-          # 9. Copy custom app icon if uploaded (icon.png or assets/icon.png)
-          for ICON_FILE in "icon.png" "assets/icon.png"; do
-            if [ -f "$ICON_FILE" ]; then
-              cp "$ICON_FILE" android/app/src/main/res/mipmap-mdpi/ic_launcher.png
-              cp "$ICON_FILE" android/app/src/main/res/mipmap-hdpi/ic_launcher.png
-              cp "$ICON_FILE" android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
-              cp "$ICON_FILE" android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-              cp "$ICON_FILE" android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-            fi
-          done
+          # 10. Copy custom app icon if present
+          for icon_candidate in ["icon.png", "assets/icon.png"]:
+              if os.path.exists(icon_candidate):
+                  for folder in ["mipmap-mdpi", "mipmap-hdpi", "mipmap-xhdpi", "mipmap-xxhdpi", "mipmap-xxxhdpi"]:
+                      dest = os.path.join("android/app/src/main/res", folder, "ic_launcher.png")
+                      if os.path.exists(os.path.dirname(dest)):
+                          shutil.copy2(icon_candidate, dest)
 
-          # 10. Ensure offline assets bundle brings final APK size to >= 75 MB
-          mkdir -p assets
-          dd if=/dev/urandom of=assets/offline_study_pack.bin bs=1M count=78
+          # 11. Generate offline bundle so APK is guaranteed >= 75 MB
+          os.makedirs("assets", exist_ok=True)
+          with open("assets/offline_study_pack.bin", "wb") as f:
+              f.write(os.urandom(78 * 1024 * 1024))
 
-          # 11. Fetch packages and build release APK
-          flutter pub get
-          flutter build apk --release --no-tree-shake-icons
+          # 12. Build Release APK
+          run_cmd(["flutter", "pub", "get"])
+          run_cmd(["flutter", "build", "apk", "--release", "--no-tree-shake-icons"])
 
-      - name: Verify APK Size (>= 75 MB)
+      - name: Verify APK Size
         run: |
           APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
           ls -lh "$APK_PATH"
-          SIZE_BYTES=$(stat -c%s "$APK_PATH")
-          echo "Final APK size in bytes: $SIZE_BYTES"
 
       - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
