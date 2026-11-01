@@ -3,6 +3,8 @@ name: build-apk
 on:
   push:
     branches: [ main, master ]
+    paths-ignore:
+      - 'files/**'
   workflow_dispatch:
 
 jobs:
@@ -26,7 +28,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Auto-Classify Uploaded Files and Build Release APK
+      - name: Build Lightweight Cloud-Enabled Release APK
         shell: python
         run: |
           import os
@@ -38,8 +40,16 @@ jobs:
           LT = chr(60)
           GT = chr(62)
 
+          repo_full_name = os.environ.get("GITHUB_REPOSITORY", "UglyAssCock/Study-DZ")
+          repo_branch = os.environ.get("GITHUB_REF_NAME", "main")
+
           def restore_angles(text):
-              return text.replace("__LT__", LT).replace("__GT__", GT)
+              return (
+                  text.replace("__LT__", LT)
+                  .replace("__GT__", GT)
+                  .replace("__GITHUB_REPO__", repo_full_name)
+                  .replace("__GITHUB_BRANCH__", repo_branch)
+              )
 
           def write_file(path, content):
               os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
@@ -50,7 +60,7 @@ jobs:
               print("Running:", " ".join(cmd))
               subprocess.run(cmd, check=True)
 
-          # 1. Backup pubspec.yaml and assets
+          # 1. Backup pubspec.yaml
           os.makedirs("/tmp/study_dz_backup", exist_ok=True)
           shutil.copy2("pubspec.yaml", "/tmp/study_dz_backup/pubspec.yaml")
 
@@ -66,122 +76,14 @@ jobs:
           # 3. Restore pubspec.yaml
           shutil.copy2("/tmp/study_dz_backup/pubspec.yaml", "pubspec.yaml")
 
-          # 4. Scan assets/ & uploads/ for bulk-uploaded PDFs and Images and auto-classify them
+          # 4. Remove any old 75MB dummy file if present so APK stays lightweight
+          if os.path.exists("assets/offline_study_pack.bin"):
+              os.remove("assets/offline_study_pack.bin")
           os.makedirs("assets", exist_ok=True)
-          if os.path.exists("uploads"):
-              for root, _, files in os.walk("uploads"):
-                  for fname in files:
-                      src = os.path.join(root, fname)
-                      rel = os.path.relpath(src, "uploads")
-                      dst = os.path.join("assets", rel)
-                      os.makedirs(os.path.dirname(dst), exist_ok=True)
-                      shutil.copy2(src, dst)
-
-          level_patterns = [
-              ("1AP", ["1ap", "1_ap", "1ابتدائي", "اولى_ابتدائي", "أولى_ابتدائي"]),
-              ("2AP", ["2ap", "2_ap", "2ابتدائي", "ثانية_ابتدائي"]),
-              ("3AP", ["3ap", "3_ap", "3ابتدائي", "ثالثة_ابتدائي"]),
-              ("4AP", ["4ap", "4_ap", "4ابتدائي", "رابعة_ابتدائي"]),
-              ("5AP", ["5ap", "5_ap", "5eme", "5ابتدائي", "خامسة_ابتدائي", "سانكيام"]),
-              ("1AM", ["1am", "1_am", "1متوسط", "اولى_متوسط", "أولى_متوسط"]),
-              ("2AM", ["2am", "2_am", "2متوسط", "ثانية_متوسط"]),
-              ("3AM", ["3am", "3_am", "3متوسط", "ثالثة_متوسط"]),
-              ("4AM", ["4am", "4_am", "bem", "4متوسط", "رابعة_متوسط", "بيام"]),
-              ("1AS", ["1as", "1_as", "1ثانوي", "اولى_ثانوي", "أولى_ثانوي"]),
-              ("2AS", ["2as", "2_as", "2ثانوي", "ثانية_ثانوي"]),
-              ("3AS", ["3as", "3_as", "bac", "3ثانوي", "ثالثة_ثانوي", "بكالوريا", "باك"]),
-          ]
-
-          subject_patterns = [
-              ("math", ["math", "رياضيات"]),
-              ("arabic", ["arab", "عربي", "عربيه", "عربية", "_ar_"]),
-              ("physics", ["phys", "فيزياء", "فيزيائية"]),
-              ("science", ["sci", "snv", "علوم", "طبيعة", "طبيعه"]),
-              ("french", ["fren", "franc", "فرنسي", "فرنسية", "_fr_"]),
-              ("english", ["engl", "انجليزي", "إنجليزي", "انجليزية", "_en_"]),
-              ("hisgeo", ["his", "geo", "تاريخ", "جغرافيا", "اجتماعيات"]),
-              ("islamic", ["islam", "تربية_اسلامية", "إسلامية", "اسلامية", "شريعة"]),
-              ("civics", ["civ", "مدنية", "مدنيه"]),
-              ("cs", ["info", "informatique", "اعلام", "إعلام", "حاسوب"]),
-              ("philo", ["philo", "فلسفة", "فلسفه"]),
-              ("accounting", ["gest", "compta", "محاسبة", "تسيير"]),
-              ("economy", ["econ", "اقتصاد", "مناجمنت"]),
-              ("law", ["law", "droit", "قانون"]),
-              ("engineering", ["tech", "genie", "هندسة", "تكنولوجيا"]),
-              ("third_lang", ["esp", "allem", "ital", "اسبانية", "ألمانية", "المانية", "ايطالية"]),
-              ("amazigh", ["amaz", "tamaz", "امازيغية", "أمازيغية"]),
-              ("art", ["art", "music", "تشكيلية", "موسيقية", "رسم"]),
-          ]
-
-          category_patterns = [
-              ("books", ["book", "livre", "manuel", "كتاب", "كتب"]),
-              ("exams", ["exam", "sujet", "اختبار", "اختبارات", "امتحان"]),
-              ("tests", ["test", "devoir", "فرض", "فروض"]),
-              ("summaries", ["resum", "summar", "ملخص", "ملخصات"]),
-              ("lessons", ["lesson", "cours", "درس", "دروس"]),
-          ]
-
-          auto_catalog = []
-          all_asset_dirs = set(["assets/"])
-
-          for root, _, files in os.walk("assets"):
-              rel_dir = os.path.relpath(root, ".").replace("\\", "/")
-              if not rel_dir.endswith("/"):
-                  rel_dir += "/"
-              all_asset_dirs.add(rel_dir)
-
-              for fname in sorted(files):
-                  lower = fname.lower()
-                  if fname in ["icon.png", "offline_study_pack.bin", "auto_catalog.json"]:
-                      continue
-                  ext = os.path.splitext(lower)[1]
-                  if ext not in [".pdf", ".png", ".jpg", ".jpeg", ".webp"]:
-                      continue
-
-                  rel_path = os.path.join(root, fname).replace("\\", "/")
-                  search_Token = rel_path.lower()
-
-                  detected_level = "3AS"
-                  for lvl_code, keys in level_patterns:
-                      if any(k in search_Token for k in keys):
-                          detected_level = lvl_code
-                          break
-
-                  detected_subject = "math"
-                  for subj_id, keys in subject_patterns:
-                      if any(k in search_Token for k in keys):
-                          detected_subject = subj_id
-                          break
-
-                  detected_category = "lessons"
-                  for cat_id, keys in category_patterns:
-                      if any(k in search_Token for k in keys):
-                          detected_category = cat_id
-                          break
-
-                  detected_trim = 1
-                  if any(k in search_Token for k in ["t2", "f2", "trim2", "ف2", "فصل2", "ثاني"]):
-                      detected_trim = 2
-                  elif any(k in search_Token for k in ["t3", "f3", "trim3", "ف3", "فصل3", "ثالث"]):
-                      detected_trim = 3
-
-                  clean_title = os.path.splitext(fname)[0].replace("_", " ").replace("-", " ").strip()
-                  file_type = "pdf" if ext == ".pdf" else "image"
-
-                  auto_catalog.append({
-                      "path": rel_path,
-                      "title": clean_title,
-                      "level": detected_level,
-                      "subject": detected_subject,
-                      "trimester": detected_trim,
-                      "category": detected_category,
-                      "type": file_type,
-                  })
-
           with open("assets/auto_catalog.json", "w", encoding="utf-8") as f:
-              json.dump(auto_catalog, f, ensure_ascii=False, indent=2)
+              json.dump([], f)
 
-          # 5. Write MainActivity.kt with built-in native Android PdfRenderer so PDFs open offline without external plugin errors
+          # 5. Write MainActivity.kt with native PdfRenderer supporting both cached disk files and assets
           if os.path.exists("android/app/src/main/kotlin"):
               shutil.rmtree("android/app/src/main/kotlin")
           if os.path.exists("android/app/src/main/java"):
@@ -207,10 +109,14 @@ jobs:
           class MainActivity: FlutterActivity() {
               private val CHANNEL = "dz.studydz.app/pdf"
 
-              private fun copyAssetToCache(assetPath: String): File {
+              private fun resolvePdfFile(pathOrAsset: String): File {
+                  val directFile = File(pathOrAsset)
+                  if (directFile.exists() && directFile.length() __GT__ 0L) {
+                      return directFile
+                  }
                   val loader = FlutterInjector.instance().flutterLoader()
-                  val lookupKey = loader.getLookupKeyForAsset(assetPath)
-                  val safeName = assetPath.replace("/", "_")
+                  val lookupKey = loader.getLookupKeyForAsset(pathOrAsset)
+                  val safeName = pathOrAsset.replace("/", "_")
                   val outFile = File(cacheDir, safeName)
                   if (!outFile.exists() || outFile.length() == 0L) {
                       assets.open(lookupKey).use { input -__GT__
@@ -228,8 +134,8 @@ jobs:
                       try {
                           when (call.method) {
                               "getPageCount" -__GT__ {
-                                  val assetPath = call.argument__LT__String__GT__("assetPath") ?: ""
-                                  val file = copyAssetToCache(assetPath)
+                                  val path = call.argument__LT__String__GT__("path") ?: ""
+                                  val file = resolvePdfFile(path)
                                   val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                                   val renderer = PdfRenderer(pfd)
                                   val count = renderer.pageCount
@@ -238,9 +144,9 @@ jobs:
                                   result.success(count)
                               }
                               "renderPage" -__GT__ {
-                                  val assetPath = call.argument__LT__String__GT__("assetPath") ?: ""
+                                  val path = call.argument__LT__String__GT__("path") ?: ""
                                   val pageIndex = call.argument__LT__Int__GT__("pageIndex") ?: 0
-                                  val file = copyAssetToCache(assetPath)
+                                  val file = resolvePdfFile(path)
                                   val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                                   val renderer = PdfRenderer(pfd)
                                   val page = renderer.openPage(pageIndex)
@@ -306,12 +212,11 @@ jobs:
           """
           )
 
-          # 7. Write lib/main.dart
+          # 7. Write lib/main.dart with live GitHub Cloud discovery + local offline cache
           write_file("lib/main.dart", r'''import 'dart:async';
           import 'dart:convert';
           import 'dart:io';
           import 'package:flutter/material.dart';
-          import 'package:flutter/services.dart';
 
           import 'screens/onboarding_screen.dart';
           import 'screens/home_shell.dart';
@@ -427,7 +332,7 @@ jobs:
           class StudentProfile {
             String id;
             String name;
-            String gender; // 'male' or 'female'
+            String gender;
             String levelCode;
             String streamCode;
 
@@ -438,12 +343,6 @@ jobs:
               this.levelCode = '3AS',
               this.streamCode = 'SE',
             });
-
-            String get cycle {
-              if (levelCode.endsWith('AP')) return 'primaire';
-              if (levelCode.endsWith('AM')) return 'moyen';
-              return 'secondaire';
-            }
 
             Map__LT__String, dynamic__GT__ toJson() =__GT__ {
                   'id': id,
@@ -465,6 +364,9 @@ jobs:
           }
 
           class AppController extends ChangeNotifier {
+            static const String githubRepo = '__GITHUB_REPO__';
+            static const String githubBranch = '__GITHUB_BRANCH__';
+
             bool hasCompletedOnboarding = false;
             bool isGuest = true;
             bool isGoogleSignedIn = false;
@@ -472,12 +374,13 @@ jobs:
             String accountEmail = '';
             String languageCode = 'ar';
             bool isDarkMode = false;
+            bool isSyncingCloud = false;
 
             List__LT__StudentProfile__GT__ profiles = [];
             int activeProfileIndex = 0;
 
-            // Holds user-uploaded PDFs and Images auto-indexed during build
             List__LT__Map__LT__String, dynamic__GT____GT__ uploadedFiles = [];
+            String _appDataDirPath = '';
 
             static const List__LT__Map__LT__String, String__GT____GT__ allLevels = [
               {'code': '1AP', 'ar': 'السنة الأولى ابتدائي (1AP)', 'fr': '1ère Année Primaire (1AP)', 'en': '1st Year Primary (1AP)', 'cycle': 'primaire'},
@@ -580,7 +483,6 @@ jobs:
               return subjectCatalog[id]?['emoji'] ?? '📘';
             }
 
-            // Exact eddirasa.com / Ministry of National Education subject coefficients per level & stream
             Map__LT__String, int__GT__ getCoefficientsForLevel(
               String levelCode,
               String streamCode, {
@@ -603,20 +505,6 @@ jobs:
                   };
                   break;
                 case '3AP':
-                  base = {
-                    'arabic': 1,
-                    'math': 1,
-                    'french': 1,
-                    'english': 1,
-                    'islamic': 1,
-                    'science': 1,
-                    'hisgeo': 1,
-                    'civics': 1,
-                    if (includeAmazigh) 'amazigh': 1,
-                    if (includeArt) 'art': 1,
-                    if (includeSport) 'sport': 1,
-                  };
-                  break;
                 case '4AP':
                 case '5AP':
                   base = {
@@ -792,7 +680,6 @@ jobs:
                       if (includeAmazigh) 'amazigh': 2,
                     };
                   } else {
-                    // SE (علوم تجريبية)
                     base = {
                       'science': 6,
                       'math': 5,
@@ -812,19 +699,243 @@ jobs:
               return base;
             }
 
-            // Returns only the real uploaded files (PDFs & Images) matching the selected level, subject, trimester, and category
+            // Auto-classifies any file path uploaded to GitHub files/ or assets/
+            Map__LT__String, dynamic__GT__? classifyFilePath(String relPath) {
+              final fname = relPath.split('/').last;
+              final lower = fname.toLowerCase();
+              if (fname == 'icon.png' || fname == 'auto_catalog.json' || fname == 'external_links.json') {
+                return null;
+              }
+              String ext = '';
+              final dotIdx = lower.lastIndexOf('.');
+              if (dotIdx != -1) {
+                ext = lower.substring(dotIdx);
+              }
+              if (!['.pdf', '.png', '.jpg', '.jpeg', '.webp'].contains(ext)) {
+                return null;
+              }
+
+              final token = relPath.toLowerCase();
+
+              final levelPatterns = __LT__String, List__LT__String__GT____GT__{
+                '1AP': ['1ap', '1_ap', '1ابتدائي', 'اولى_ابتدائي', 'أولى_ابتدائي'],
+                '2AP': ['2ap', '2_ap', '2ابتدائي', 'ثانية_ابتدائي'],
+                '3AP': ['3ap', '3_ap', '3ابتدائي', 'ثالثة_ابتدائي'],
+                '4AP': ['4ap', '4_ap', '4ابتدائي', 'رابعة_ابتدائي'],
+                '5AP': ['5ap', '5_ap', '5eme', '5ابتدائي', 'خامسة_ابتدائي', 'سانكيام'],
+                '1AM': ['1am', '1_am', '1متوسط', 'اولى_متوسط', 'أولى_متوسط'],
+                '2AM': ['2am', '2_am', '2متوسط', 'ثانية_متوسط'],
+                '3AM': ['3am', '3_am', '3متوسط', 'ثالثة_متوسط'],
+                '4AM': ['4am', '4_am', 'bem', '4متوسط', 'رابعة_متوسط', 'بيام'],
+                '1AS': ['1as', '1_as', '1ثانوي', 'اولى_ثانوي', 'أولى_ثانوي'],
+                '2AS': ['2as', '2_as', '2ثانوي', 'ثانية_ثانوي'],
+                '3AS': ['3as', '3_as', 'bac', '3ثانوي', 'ثالثة_ثانوي', 'بكالوريا', 'باك'],
+              };
+
+              String detectedLevel = '3AS';
+              for (final entry in levelPatterns.entries) {
+                if (entry.value.any((k) =__GT__ token.contains(k))) {
+                  detectedLevel = entry.key;
+                  break;
+                }
+              }
+
+              final subjectPatterns = __LT__String, List__LT__String__GT____GT__{
+                'math': ['math', 'رياضيات'],
+                'arabic': ['arab', 'عربي', 'عربيه', 'عربية', '_ar_'],
+                'physics': ['phys', 'فيزياء', 'فيزيائية'],
+                'science': ['sci', 'snv', 'علوم', 'طبيعة', 'طبيعه'],
+                'french': ['fren', 'franc', 'فرنسي', 'فرنسية', '_fr_'],
+                'english': ['engl', 'انجليزي', 'إنجليزي', 'انجليزية', '_en_'],
+                'hisgeo': ['his', 'geo', 'تاريخ', 'جغرافيا', 'اجتماعيات'],
+                'islamic': ['isl', 'تربية_اسلامية', 'إسلامية', 'اسلامية', 'شريعة'],
+                'civics': ['civ', 'مدنية', 'مدنيه'],
+                'cs': ['info', 'informatique', 'اعلام', 'إعلام', 'حاسوب'],
+                'philo': ['philo', 'فلسفة', 'فلسفه'],
+                'accounting': ['gest', 'compta', 'محاسبة', 'تسيير'],
+                'economy': ['econ', 'اقتصاد', 'مناجمنت'],
+                'law': ['law', 'droit', 'قانون'],
+                'engineering': ['tech', 'genie', 'هندسة', 'تكنولوجيا'],
+                'third_lang': ['esp', 'allem', 'ital', 'اسبانية', 'ألمانية', 'المانية', 'ايطالية'],
+                'amazigh': ['amaz', 'tamaz', 'امازيغية', 'أمازيغية'],
+                'art': ['art', 'music', 'تشكيلية', 'موسيقية', 'رسم'],
+              };
+
+              String detectedSubject = 'math';
+              for (final entry in subjectPatterns.entries) {
+                if (entry.value.any((k) =__GT__ token.contains(k))) {
+                  detectedSubject = entry.key;
+                  break;
+                }
+              }
+
+              final categoryPatterns = __LT__String, List__LT__String__GT____GT__{
+                'books': ['book', 'livre', 'manuel', 'كتاب', 'كتب'],
+                'exams': ['exam', 'sujet', 'اختبار', 'اختبارات', 'امتحان'],
+                'tests': ['test', 'devoir', 'فرض', 'فروض'],
+                'summaries': ['resum', 'summar', 'ملخص', 'ملخصات'],
+                'lessons': ['lesson', 'cours', 'درس', 'دروس'],
+              };
+
+              String detectedCategory = 'lessons';
+              for (final entry in categoryPatterns.entries) {
+                if (entry.value.any((k) =__GT__ token.contains(k))) {
+                  detectedCategory = entry.key;
+                  break;
+                }
+              }
+
+              int detectedTrim = 1;
+              if (['t2', 'f2', 'trim2', 'ف2', 'فصل2', 'ثاني'].any((k) =__GT__ token.contains(k))) {
+                detectedTrim = 2;
+              } else if (['t3', 'f3', 'trim3', 'ف3', 'فصل3', 'ثالث'].any((k) =__GT__ token.contains(k))) {
+                detectedTrim = 3;
+              }
+
+              final rawTitle = dotIdx != -1 ? fname.substring(0, dotIdx) : fname;
+              final cleanTitle = rawTitle.replaceAll('_', ' ').replaceAll('-', ' ').trim();
+              final encodedPath = relPath.split('/').map(Uri.encodeComponent).join('/');
+              final downloadUrl = 'https://raw.githubusercontent.com/$githubRepo/$githubBranch/$encodedPath';
+
+              return {
+                'path': relPath,
+                'url': downloadUrl,
+                'title': cleanTitle,
+                'level': detectedLevel,
+                'subject': detectedSubject,
+                'trimester': detectedTrim,
+                'category': detectedCategory,
+                'type': ext == '.pdf' ? 'pdf' : 'image',
+              };
+            }
+
+            // Fetches the live file list from GitHub files/ & assets/ without needing an APK rebuild
+            Future__LT__int__GT__ refreshCloudCatalog() async {
+              isSyncingCloud = true;
+              notifyListeners();
+              final discovered = __LT__Map__LT__String, dynamic__GT____GT__[];
+
+              try {
+                final client = HttpClient();
+                client.connectionTimeout = const Duration(seconds: 12);
+                final treeUri = Uri.parse(
+                  'https://api.github.com/repos/$githubRepo/git/trees/$githubBranch?recursive=1',
+                );
+                final req = await client.getUrl(treeUri);
+                req.headers.set('User-Agent', 'StudyDZ-App');
+                req.headers.set('Accept', 'application/vnd.github.v3+json');
+                final resp = await req.close().timeout(const Duration(seconds: 15));
+                if (resp.statusCode == 200) {
+                  final body = await resp.transform(utf8.decoder).join();
+                  final decoded = jsonDecode(body) as Map__LT__String, dynamic__GT__;
+                  final tree = (decoded['tree'] as List?) ?? [];
+                  for (final node in tree) {
+                    if (node is Map && node['type'] == 'blob') {
+                      final path = node['path']?.toString() ?? '';
+                      if (path.startsWith('files/') || path.startsWith('assets/') || path.startsWith('uploads/')) {
+                        final item = classifyFilePath(path);
+                        if (item != null) {
+                          discovered.add(item);
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch (_) {}
+
+              // Also check optional files/external_links.json for large >25MB books
+              try {
+                final client = HttpClient();
+                final extUri = Uri.parse(
+                  'https://raw.githubusercontent.com/$githubRepo/$githubBranch/files/external_links.json',
+                );
+                final req = await client.getUrl(extUri);
+                final resp = await req.close().timeout(const Duration(seconds: 10));
+                if (resp.statusCode == 200) {
+                  final body = await resp.transform(utf8.decoder).join();
+                  final extList = jsonDecode(body);
+                  if (extList is List) {
+                    for (final entry in extList) {
+                      if (entry is Map) {
+                        final m = Map__LT__String, dynamic__GT__.from(entry);
+                        m['path'] = m['path'] ?? 'external_${m['title']}.pdf';
+                        discovered.add(m);
+                      }
+                    }
+                  }
+                }
+              } catch (_) {}
+
+              if (discovered.isNotEmpty) {
+                uploadedFiles = discovered;
+                try {
+                  final cacheCatalogFile = File('$_appDataDirPath/study_dz_cloud_catalog.json');
+                  await cacheCatalogFile.writeAsString(jsonEncode(uploadedFiles));
+                } catch (_) {}
+              }
+
+              isSyncingCloud = false;
+              notifyListeners();
+              return uploadedFiles.length;
+            }
+
+            File getLocalCachedFile(Map__LT__String, dynamic__GT__ fileItem) {
+              final rawPath = fileItem['path']?.toString() ?? fileItem['title']?.toString() ?? 'doc.pdf';
+              final safeName = rawPath.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+              final cacheDir = Directory('$_appDataDirPath/offline_files');
+              if (!cacheDir.existsSync()) {
+                cacheDir.createSync(recursive: true);
+              }
+              return File('${cacheDir.path}/$safeName');
+            }
+
+            bool isFileCachedLocally(Map__LT__String, dynamic__GT__ fileItem) {
+              final f = getLocalCachedFile(fileItem);
+              return f.existsSync() && f.lengthSync() __GT__ 0;
+            }
+
+            Future__LT__File__GT__ downloadAndCacheFile(Map__LT__String, dynamic__GT__ fileItem) async {
+              final targetFile = getLocalCachedFile(fileItem);
+              if (await targetFile.exists() && await targetFile.length() __GT__ 0) {
+                return targetFile;
+              }
+              final url = fileItem['url']?.toString() ?? '';
+              final client = HttpClient();
+              final req = await client.getUrl(Uri.parse(url));
+              req.headers.set('User-Agent', 'StudyDZ-App');
+              final resp = await req.close().timeout(const Duration(seconds: 60));
+              if (resp.statusCode != 200) {
+                throw Exception('HTTP ${resp.statusCode}');
+              }
+              final bytes = await resp.fold__LT__List__LT__int__GT____GT__(
+                __LT__int__GT__[],
+                (prev, element) =__GT__ prev..addAll(element),
+              );
+              await targetFile.writeAsBytes(bytes, flush: true);
+              notifyListeners();
+              return targetFile;
+            }
+
+            Future__LT__void__GT__ deleteCachedFile(Map__LT__String, dynamic__GT__ fileItem) async {
+              final f = getLocalCachedFile(fileItem);
+              if (await f.exists()) {
+                await f.delete();
+                notifyListeners();
+              }
+            }
+
             List__LT__Map__LT__String, dynamic__GT____GT__ getUploadedStudyItems({
               required String levelCode,
               required String subjectId,
               required int trimester,
-              required String category, // 'lessons', 'summaries', 'tests', 'exams', 'books'
+              required String category,
             }) {
               return uploadedFiles.where((f) {
                 final sameLevel = (f['level']?.toString().toUpperCase() ?? '') == levelCode.toUpperCase();
                 final sameSubj = (f['subject']?.toString() ?? '') == subjectId;
                 final sameCat = (f['category']?.toString() ?? '') == category;
                 if (!sameLevel || !sameSubj || !sameCat) return false;
-                if (category == 'books') return true; // Books appear in all trimesters
+                if (category == 'books') return true;
                 final fTrim = int.tryParse(f['trimester']?.toString() ?? '1') ?? 1;
                 return fTrim == trimester;
               }).toList();
@@ -859,29 +970,37 @@ jobs:
                     if (!await dir.exists()) {
                       await dir.create(recursive: true);
                     }
-                    return File('${dir.path}/study_dz_v3_state.json');
+                    _appDataDirPath = dir.path;
+                    return File('${dir.path}/study_dz_v4_state.json');
                   }
                 }
               } catch (_) {}
-              return File('${Directory.systemTemp.path}/study_dz_v3_state.json');
+              _appDataDirPath = Directory.systemTemp.path;
+              return File('${Directory.systemTemp.path}/study_dz_v4_state.json');
             }
 
             Future__LT__void__GT__ initialize() async {
+              final stateFile = await _resolveStorageFile();
+
+              // Load saved offline catalog cache first
               try {
-                final rawCatalog = await rootBundle.loadString('assets/auto_catalog.json');
-                final decoded = jsonDecode(rawCatalog);
-                if (decoded is List) {
-                  uploadedFiles = decoded
-                      .whereType__LT__Map__GT__()
-                      .map((e) =__GT__ Map__LT__String, dynamic__GT__.from(e))
-                      .toList();
+                final cacheCatalogFile = File('$_appDataDirPath/study_dz_cloud_catalog.json');
+                if (await cacheCatalogFile.exists()) {
+                  final raw = await cacheCatalogFile.readAsString();
+                  final decoded = jsonDecode(raw);
+                  if (decoded is List) {
+                    uploadedFiles = decoded
+                        .whereType__LT__Map__GT__()
+                        .map((e) =__GT__ Map__LT__String, dynamic__GT__.from(e))
+                        .toList();
+                  }
                 }
               } catch (_) {}
 
+              // Load user profile state
               try {
-                final file = await _resolveStorageFile();
-                if (await file.exists()) {
-                  final content = await file.readAsString();
+                if (await stateFile.exists()) {
+                  final content = await stateFile.readAsString();
                   final map = jsonDecode(content) as Map__LT__String, dynamic__GT__;
                   hasCompletedOnboarding = map['hasCompletedOnboarding'] == true;
                   isGuest = map['isGuest'] != false;
@@ -902,6 +1021,9 @@ jobs:
                   }
                 }
               } catch (_) {}
+
+              // Sync latest files from GitHub in the background without blocking startup
+              unawaited(refreshCloudCatalog());
             }
 
             Future__LT__void__GT__ saveState() async {
@@ -922,997 +1044,12 @@ jobs:
               } catch (_) {}
               notifyListeners();
             }
-
-            Future__LT__void__GT__ resetAllData() async {
-              hasCompletedOnboarding = false;
-              isGuest = true;
-              isGoogleSignedIn = false;
-              accountName = '';
-              accountEmail = '';
-              profiles = [];
-              activeProfileIndex = 0;
-              try {
-                final file = await _resolveStorageFile();
-                if (await file.exists()) {
-                  await file.delete();
-                }
-              } catch (_) {}
-              notifyListeners();
-            }
           }
           ''')
 
-          # 8. Write lib/screens/onboarding_screen.dart
-          write_file("lib/screens/onboarding_screen.dart", r'''import 'package:flutter/material.dart';
-          import '../main.dart';
-
-          class OnboardingScreen extends StatefulWidget {
-            const OnboardingScreen({super.key});
-
-            @override
-            State__LT__OnboardingScreen__GT__ createState() =__GT__ _OnboardingScreenState();
-          }
-
-          class _OnboardingScreenState extends State__LT__OnboardingScreen__GT__ {
-            final _nameCtrl = TextEditingController(text: 'الوليد');
-            String _selectedGender = 'male';
-            String _selectedLevel = '3AS';
-            String _selectedStream = 'SE';
-
-            @override
-            void dispose() {
-              _nameCtrl.dispose();
-              super.dispose();
-            }
-
-            void _finishSetup(AppController ctrl, {bool googleSignIn = false, String? googleEmail, String? googleName}) {
-              final finalName = (googleName != null && googleName.trim().isNotEmpty)
-                  ? googleName.trim()
-                  : (_nameCtrl.text.trim().isEmpty ? 'الوليد' : _nameCtrl.text.trim());
-
-              ctrl.isGoogleSignedIn = googleSignIn;
-              ctrl.isGuest = !googleSignIn;
-              if (googleSignIn) {
-                ctrl.accountName = finalName;
-                ctrl.accountEmail = googleEmail ?? 'student.dz@gmail.com';
-              }
-
-              final profile = StudentProfile(
-                id: 'p_${DateTime.now().millisecondsSinceEpoch}',
-                name: finalName,
-                gender: _selectedGender,
-                levelCode: _selectedLevel,
-                streamCode: _selectedStream,
-              );
-
-              ctrl.profiles = [profile];
-              ctrl.activeProfileIndex = 0;
-              ctrl.hasCompletedOnboarding = true;
-              ctrl.saveState();
-            }
-
-            void _promptGoogleSignIn(BuildContext context, AppController ctrl) {
-              final gNameCtrl = TextEditingController(text: _nameCtrl.text);
-              final gEmailCtrl = TextEditingController(text: 'walid.studydz@gmail.com');
-
-              showDialog(
-                context: context,
-                builder: (ctx) =__GT__ AlertDialog(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  title: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Text('G', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.red, fontSize: 20)),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          ctrl.tr('تسجيل الدخول بحساب Google', 'Connexion avec Google', 'Sign in with Google'),
-                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: gNameCtrl,
-                        decoration: InputDecoration(
-                          labelText: ctrl.tr('الاسم الكامل', 'Nom complet', 'Full Name'),
-                          prefixIcon: const Icon(Icons.person_outline),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: gEmailCtrl,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: InputDecoration(
-                          labelText: ctrl.tr('بريد Gmail الإلكتروني', 'Adresse Gmail', 'Gmail Address'),
-                          prefixIcon: const Icon(Icons.email_outlined),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () =__GT__ Navigator.pop(ctx),
-                      child: Text(ctrl.tr('إلغاء', 'Annuler', 'Cancel')),
-                    ),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF147A42)),
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _finishSetup(
-                          ctrl,
-                          googleSignIn: true,
-                          googleName: gNameCtrl.text,
-                          googleEmail: gEmailCtrl.text,
-                        );
-                      },
-                      icon: const Icon(Icons.check),
-                      label: Text(ctrl.tr('متابعة بحساب Google', 'Continuer', 'Continue')),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final is1AS = _selectedLevel == '1AS';
-              final is2AS3AS = _selectedLevel == '2AS' || _selectedLevel == '3AS';
-              final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
-              if ((is1AS || is2AS3AS) && !streams.any((s) =__GT__ s['code'] == _selectedStream)) {
-                _selectedStream = streams.first['code']!;
-              }
-
-              return Scaffold(
-                body: Container(
-                  width: double.infinity,
-                  height: double.infinity,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF0D5E31), Color(0xFF147A42), Color(0xFF1B9452)],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                  ),
-                  child: SafeArea(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              SegmentedButton__LT__String__GT__(
-                                style: ButtonStyle(
-                                  backgroundColor: WidgetStateProperty.resolveWith((states) {
-                                    if (states.contains(WidgetState.selected)) {
-                                      return const Color(0xFFF5B800);
-                                    }
-                                    return Colors.white.withOpacity(0.15);
-                                  }),
-                                  foregroundColor: WidgetStateProperty.resolveWith((states) {
-                                    if (states.contains(WidgetState.selected)) {
-                                      return Colors.black87;
-                                    }
-                                    return Colors.white;
-                                  }),
-                                ),
-                                segments: const [
-                                  ButtonSegment(value: 'ar', label: Text('عربي')),
-                                  ButtonSegment(value: 'fr', label: Text('FR')),
-                                  ButtonSegment(value: 'en', label: Text('EN')),
-                                ],
-                                selected: {ctrl.languageCode},
-                                onSelectionChanged: (s) {
-                                  ctrl.languageCode = s.first;
-                                  ctrl.saveState();
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          RichText(
-                            text: const TextSpan(
-                              style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
-                              children: [
-                                TextSpan(text: 'Study ', style: TextStyle(color: Colors.white)),
-                                TextSpan(text: 'DZ', style: TextStyle(color: Color(0xFFF5B800))),
-                                TextSpan(text: ' • ستدي دي زد', style: TextStyle(color: Colors.white)),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            ctrl.tr(
-                              'بوابتك التعليمية الشاملة للابتدائي والمتوسط والثانوي في الجزائر',
-                              'Votre portail éducatif complet en Algérie',
-                              'Your complete educational portal in Algeria',
-                            ),
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontSize: 14.5),
-                          ),
-                          const SizedBox(height: 22),
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                TextField(
-                                  controller: _nameCtrl,
-                                  style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
-                                  decoration: InputDecoration(
-                                    labelText: ctrl.tr('اسم التلميذ(ة)', 'Prénom', 'Student Name'),
-                                    prefixIcon: const Icon(Icons.person_outline, color: Color(0xFF147A42)),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  ctrl.tr('اختر الجنس:', 'Choisissez le sexe :', 'Select Gender:'),
-                                  style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.black87),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(14),
-                                        onTap: () =__GT__ setState(() =__GT__ _selectedGender = 'male'),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                          decoration: BoxDecoration(
-                                            color: _selectedGender == 'male'
-                                                ? const Color(0xFFE8F5E9)
-                                                : Colors.grey.shade100,
-                                            borderRadius: BorderRadius.circular(14),
-                                            border: Border.all(
-                                              color: _selectedGender == 'male'
-                                                  ? const Color(0xFF147A42)
-                                                  : Colors.grey.shade300,
-                                              width: 2,
-                                            ),
-                                          ),
-                                          child: Column(
-                                            children: [
-                                              const Text('👦🏻', style: TextStyle(fontSize: 30)),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                ctrl.tr('ذكر', 'Garçon', 'Male'),
-                                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(14),
-                                        onTap: () =__GT__ setState(() =__GT__ _selectedGender = 'female'),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                          decoration: BoxDecoration(
-                                            color: _selectedGender == 'female'
-                                                ? const Color(0xFFFCE4EC)
-                                                : Colors.grey.shade100,
-                                            borderRadius: BorderRadius.circular(14),
-                                            border: Border.all(
-                                              color: _selectedGender == 'female'
-                                                  ? Colors.pink.shade400
-                                                  : Colors.grey.shade300,
-                                              width: 2,
-                                            ),
-                                          ),
-                                          child: Column(
-                                            children: [
-                                              const Text('👧🏻', style: TextStyle(fontSize: 30)),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                ctrl.tr('أنثى', 'Fille', 'Female'),
-                                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                DropdownButtonFormField__LT__String__GT__(
-                                  value: _selectedLevel,
-                                  decoration: InputDecoration(
-                                    labelText: ctrl.tr('السنة الدراسية', 'Niveau scolaire', 'Grade Level'),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                  items: AppController.allLevels
-                                      .map((lvl) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                            value: lvl['code']!,
-                                            child: Text(ctrl.tr(lvl['ar']!, lvl['fr']!, lvl['en'])),
-                                          ))
-                                      .toList(),
-                                  onChanged: (val) {
-                                    if (val != null) setState(() =__GT__ _selectedLevel = val);
-                                  },
-                                ),
-                                if (is1AS || is2AS3AS) ...[
-                                  const SizedBox(height: 12),
-                                  DropdownButtonFormField__LT__String__GT__(
-                                    value: _selectedStream,
-                                    decoration: InputDecoration(
-                                      labelText: ctrl.tr('الشعبة', 'Filière', 'Stream'),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                    ),
-                                    items: streams
-                                        .map((s) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                              value: s['code']!,
-                                              child: Text(ctrl.tr(s['ar']!, s['fr']!, s['en'])),
-                                            ))
-                                        .toList(),
-                                    onChanged: (val) {
-                                      if (val != null) setState(() =__GT__ _selectedStream = val);
-                                    },
-                                  ),
-                                ],
-                                const SizedBox(height: 20),
-                                FilledButton.icon(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF147A42),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 15),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                  onPressed: () =__GT__ _finishSetup(ctrl, googleSignIn: false),
-                                  icon: const Icon(Icons.arrow_forward),
-                                  label: Text(
-                                    ctrl.tr('الدخول المباشر إلى التطبيق', 'Accéder à Study DZ', 'Continue to App'),
-                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.black87,
-                                    side: BorderSide(color: Colors.grey.shade400, width: 1.5),
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                  onPressed: () =__GT__ _promptGoogleSignIn(context, ctrl),
-                                  icon: const Text(
-                                    'G',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w900,
-                                      color: Colors.red,
-                                    ),
-                                  ),
-                                  label: Text(
-                                    ctrl.tr(
-                                      'تسجيل الدخول باستخدام Google',
-                                      'Se connecter avec Google',
-                                      'Sign in with Google',
-                                    ),
-                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }
-          }
-          ''')
-
-          # 9. Write lib/screens/home_shell.dart (With Calculator Icon Badge on Average Calculator Card)
-          write_file("lib/screens/home_shell.dart", r'''import 'package:flutter/material.dart';
-          import '../main.dart';
-          import 'subjects_screen.dart';
-          import 'tools_screen.dart';
-          import 'profile_screen.dart';
-
-          class HomeShell extends StatefulWidget {
-            const HomeShell({super.key});
-
-            @override
-            State__LT__HomeShell__GT__ createState() =__GT__ _HomeShellState();
-          }
-
-          class _HomeShellState extends State__LT__HomeShell__GT__ {
-            final GlobalKey__LT__ScaffoldState__GT__ _scaffoldKey = GlobalKey__LT__ScaffoldState__GT__();
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final profile = ctrl.currentProfile;
-              final avatarEmoji = profile.gender == 'female' ? '👧🏻' : '👦🏻';
-
-              return Scaffold(
-                key: _scaffoldKey,
-                drawer: const AppDrawerMenu(),
-                endDrawer: const AppDrawerMenu(),
-                appBar: PreferredSize(
-                  preferredSize: const Size.fromHeight(60),
-                  child: Directionality(
-                    textDirection: TextDirection.ltr,
-                    child: AppBar(
-                      backgroundColor: const Color(0xFF147A42),
-                      leading: IconButton(
-                        icon: const Icon(Icons.menu, color: Colors.white, size: 28),
-                        onPressed: () {
-                          if (ctrl.languageCode == 'ar') {
-                            _scaffoldKey.currentState?.openEndDrawer();
-                          } else {
-                            _scaffoldKey.currentState?.openDrawer();
-                          }
-                        },
-                      ),
-                      title: RichText(
-                        text: const TextSpan(
-                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
-                          children: [
-                            TextSpan(text: 'Study ', style: TextStyle(color: Colors.white)),
-                            TextSpan(text: 'DZ', style: TextStyle(color: Color(0xFFF5B800))),
-                            TextSpan(text: ' • ستدي دي زد', style: TextStyle(color: Colors.white)),
-                          ],
-                        ),
-                      ),
-                      actions: [
-                        IconButton(
-                          icon: const Icon(Icons.search, color: Colors.white, size: 28),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (_) =__GT__ const GlobalSearchPage()),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                body: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-                  children: [
-                    // Green Welcome Header Banner
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF147A42), Color(0xFF19874B)],
-                          begin: Alignment.topRight,
-                          end: Alignment.bottomLeft,
-                        ),
-                        borderRadius: BorderRadius.circular(26),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF147A42).withOpacity(0.22),
-                            blurRadius: 14,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: Directionality(
-                        textDirection: TextDirection.rtl,
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 68,
-                              height: 68,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.18),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Center(
-                                child: Text(avatarEmoji, style: const TextStyle(fontSize: 38)),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    ctrl.tr(
-                                      'مرحباً بك مجدداً 👋 يا ${profile.name}',
-                                      'Bon retour 👋 ${profile.name}',
-                                      'Welcome back 👋 ${profile.name}',
-                                    ),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 21,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  InkWell(
-                                    borderRadius: BorderRadius.circular(24),
-                                    onTap: () =__GT__ _showQuickLevelSelector(context, ctrl),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF0E5C31),
-                                        borderRadius: BorderRadius.circular(24),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Text('🎓 ', style: TextStyle(fontSize: 16)),
-                                          Flexible(
-                                            child: Text(
-                                              ctrl.levelLabel(profile.levelCode),
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 14.5,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          const Text('▾', style: TextStyle(color: Colors.white, fontSize: 16)),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-
-                    // Card 1: التعليم الابتدائي
-                    _MainCategoryCard(
-                      title: ctrl.tr('التعليم الابتدائي', 'Enseignement Primaire', 'Primary School'),
-                      subtitle: ctrl.tr('تصفح المستويات', 'Parcourir les niveaux', 'Browse Levels'),
-                      iconWidget: const _BadgeIllustration(emoji: '🎒', bgColor: Color(0xFFE8F5E9)),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =__GT__ const CycleLevelsPage(
-                              cycleCode: 'primaire',
-                              titleAr: 'التعليم الابتدائي',
-                              titleFr: 'Enseignement Primaire',
-                              titleEn: 'Primary School',
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Card 2: التعليم المتوسط
-                    _MainCategoryCard(
-                      title: ctrl.tr('التعليم المتوسط', 'Enseignement Moyen (CEM)', 'Middle School (CEM)'),
-                      subtitle: ctrl.tr('تصفح المستويات', 'Parcourir les niveaux', 'Browse Levels'),
-                      iconWidget: const _BadgeIllustration(emoji: '📝', bgColor: Color(0xFFE8F5E9)),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =__GT__ const CycleLevelsPage(
-                              cycleCode: 'moyen',
-                              titleAr: 'التعليم المتوسط',
-                              titleFr: 'Enseignement Moyen',
-                              titleEn: 'Middle School',
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Card 3: التعليم الثانوي
-                    _MainCategoryCard(
-                      title: ctrl.tr('التعليم الثانوي', 'Enseignement Secondaire', 'High School (BAC)'),
-                      subtitle: ctrl.tr('تصفح المستويات', 'Parcourir les niveaux', 'Browse Levels'),
-                      iconWidget: const _BadgeIllustration(emoji: '🎓', bgColor: Color(0xFFE8F5E9)),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =__GT__ const CycleLevelsPage(
-                              cycleCode: 'secondaire',
-                              titleAr: 'التعليم الثانوي',
-                              titleFr: 'Enseignement Secondaire',
-                              titleEn: 'High School',
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Card 4: حاسبة المعدل with realistic Green Calculator Icon
-                    _MainCategoryCard(
-                      title: ctrl.tr('حاسبة المعدل', 'Calculateur de Moyenne', 'Average Calculator'),
-                      subtitle: ctrl.tr('احسب معدلك', 'Calculez votre moyenne', 'Calculate your GPA'),
-                      iconWidget: Container(
-                        width: 68,
-                        height: 68,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F5E9),
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.calculate_rounded,
-                            size: 46,
-                            color: Color(0xFF147A42),
-                          ),
-                        ),
-                      ),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) =__GT__ const ToolsScreen()),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                ),
-              );
-            }
-
-            void _showQuickLevelSelector(BuildContext context, AppController ctrl) {
-              showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                ),
-                builder: (ctx) {
-                  return StatefulBuilder(
-                    builder: (ctx, setModalState) {
-                      final p = ctrl.currentProfile;
-                      final is1AS = p.levelCode == '1AS';
-                      final is2AS3AS = p.levelCode == '2AS' || p.levelCode == '3AS';
-                      final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
-
-                      return Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              ctrl.tr('اختر سنتك الدراسية الحالية', 'Choisissez votre niveau', 'Select Current Grade'),
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                            ),
-                            const SizedBox(height: 14),
-                            DropdownButtonFormField__LT__String__GT__(
-                              value: p.levelCode,
-                              decoration: InputDecoration(
-                                labelText: ctrl.tr('المستوى الدراسي', 'Niveau', 'Level'),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                              ),
-                              items: AppController.allLevels
-                                  .map((lvl) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                        value: lvl['code']!,
-                                        child: Text(ctrl.tr(lvl['ar']!, lvl['fr']!, lvl['en'])),
-                                      ))
-                                  .toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  p.levelCode = val;
-                                  if (val == '1AS') {
-                                    p.streamCode = 'TC_ST';
-                                  } else if (val == '2AS' || val == '3AS') {
-                                    if (p.streamCode.isEmpty || p.streamCode.startsWith('TC_')) {
-                                      p.streamCode = 'SE';
-                                    }
-                                  }
-                                  ctrl.saveState();
-                                  setModalState(() {});
-                                }
-                              },
-                            ),
-                            if (is1AS || is2AS3AS) ...[
-                              const SizedBox(height: 12),
-                              DropdownButtonFormField__LT__String__GT__(
-                                value: streams.any((s) =__GT__ s['code'] == p.streamCode)
-                                    ? p.streamCode
-                                    : streams.first['code']!,
-                                decoration: InputDecoration(
-                                  labelText: ctrl.tr('الشعبة', 'Filière', 'Stream'),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                ),
-                                items: streams
-                                    .map((s) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                          value: s['code']!,
-                                          child: Text(ctrl.tr(s['ar']!, s['fr']!, s['en'])),
-                                        ))
-                                    .toList(),
-                                onChanged: (val) {
-                                  if (val != null) {
-                                    p.streamCode = val;
-                                    ctrl.saveState();
-                                    setModalState(() {});
-                                  }
-                                },
-                              ),
-                            ],
-                            const SizedBox(height: 16),
-                            FilledButton(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF147A42),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                              ),
-                              onPressed: () =__GT__ Navigator.pop(ctx),
-                              child: Text(ctrl.tr('حفظ وإغلاق', 'Enregistrer', 'Save')),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  );
-                },
-              );
-            }
-          }
-
-          class _MainCategoryCard extends StatelessWidget {
-            final String title;
-            final String subtitle;
-            final Widget iconWidget;
-            final VoidCallback onTap;
-
-            const _MainCategoryCard({
-              required this.title,
-              required this.subtitle,
-              required this.iconWidget,
-              required this.onTap,
-            });
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              return InkWell(
-                borderRadius: BorderRadius.circular(24),
-                onTap: onTap,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
-                  decoration: BoxDecoration(
-                    color: ctrl.isDarkMode ? const Color(0xFF19241D) : const Color(0xFFF9F9F4),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: ctrl.isDarkMode
-                          ? Colors.white12
-                          : const Color(0xFFE5E8E2),
-                      width: 1.4,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Directionality(
-                    textDirection: TextDirection.rtl,
-                    child: Row(
-                      children: [
-                        iconWidget,
-                        const SizedBox(width: 18),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w900,
-                                  color: ctrl.isDarkMode ? Colors.white : const Color(0xFF181C19),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                subtitle,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: ctrl.isDarkMode ? Colors.white70 : const Color(0xFF6E7570),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          width: 46,
-                          height: 46,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF147A42),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.chevron_left,
-                              color: Colors.white,
-                              size: 30,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            }
-          }
-
-          class _BadgeIllustration extends StatelessWidget {
-            final String emoji;
-            final Color bgColor;
-
-            const _BadgeIllustration({required this.emoji, required this.bgColor});
-
-            @override
-            Widget build(BuildContext context) {
-              return Container(
-                width: 68,
-                height: 68,
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Center(
-                  child: Text(emoji, style: const TextStyle(fontSize: 40)),
-                ),
-              );
-            }
-          }
-
-          class GlobalSearchPage extends StatefulWidget {
-            const GlobalSearchPage({super.key});
-
-            @override
-            State__LT__GlobalSearchPage__GT__ createState() =__GT__ _GlobalSearchPageState();
-          }
-
-          class _GlobalSearchPageState extends State__LT__GlobalSearchPage__GT__ {
-            String _query = '';
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final results = ctrl.searchAllContent(_query);
-
-              final q = _query.trim().toLowerCase();
-              final matchedLevels = AppController.allLevels.where((l) {
-                return q.isNotEmpty &&
-                    (l['code']!.toLowerCase().contains(q) ||
-                        l['ar']!.toLowerCase().contains(q) ||
-                        l['fr']!.toLowerCase().contains(q));
-              }).toList();
-
-              return Scaffold(
-                appBar: AppBar(
-                  title: Text(ctrl.tr('البحث السريع', 'Recherche rapide', 'Quick Search')),
-                ),
-                body: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: TextField(
-                        autofocus: true,
-                        decoration: InputDecoration(
-                          hintText: ctrl.tr(
-                            'ابحث عن ملف مرفوع أو سنة دراسية (مثال: 4AM، 3AS، رياضيات)...',
-                            'Rechercher un fichier ou un niveau...',
-                            'Search uploaded file or grade level...',
-                          ),
-                          prefixIcon: const Icon(Icons.search, color: Color(0xFF147A42)),
-                          filled: true,
-                          fillColor: ctrl.isDarkMode ? const Color(0xFF19241D) : Colors.white,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        onChanged: (v) =__GT__ setState(() =__GT__ _query = v),
-                      ),
-                    ),
-                    Expanded(
-                      child: q.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Text(
-                                  ctrl.tr(
-                                    'اكتب اسم الملف أو السنة الدراسية للوصول السريع.',
-                                    'Tapez le nom du fichier ou du niveau.',
-                                    'Type a file name or level to search.',
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            )
-                          : ListView(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              children: [
-                                for (final lvl in matchedLevels)
-                                  Card(
-                                    child: ListTile(
-                                      leading: const CircleAvatar(
-                                        backgroundColor: Color(0xFF147A42),
-                                        foregroundColor: Colors.white,
-                                        child: Icon(Icons.school),
-                                      ),
-                                      title: Text(ctrl.tr(lvl['ar']!, lvl['fr']!, lvl['en'])),
-                                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =__GT__ LevelSubjectsPage(levelCode: lvl['code']!),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                for (final f in results)
-                                  Card(
-                                    child: ListTile(
-                                      leading: Icon(
-                                        f['type'] == 'pdf' ? Icons.picture_as_pdf : Icons.image,
-                                        color: const Color(0xFF147A42),
-                                        size: 30,
-                                      ),
-                                      title: Text(
-                                        f['title']?.toString() ?? '',
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
-                                      ),
-                                      subtitle: Text(
-                                        '${f['level']} • ${ctrl.subjectTitle(f['subject']?.toString() ?? 'math')}',
-                                      ),
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =__GT__ FileViewerPage(fileItem: f),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                              ],
-                            ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-          ''')
-
-          # 10. Write lib/screens/subjects_screen.dart (5 Folders: الدروس، الملخصات، الفروض، الاختبارات، الكتب + Native PDF/Image Viewer)
-          write_file("lib/screens/subjects_screen.dart", r'''import 'dart:typed_data';
+          # 8. Write lib/screens/subjects_screen.dart with Cloud Sync + Download Once / Offline Forever
+          write_file("lib/screens/subjects_screen.dart", r'''import 'dart:io';
+          import 'dart:typed_data';
           import 'package:flutter/material.dart';
           import 'package:flutter/services.dart';
           import '../main.dart';
@@ -2193,7 +1330,6 @@ jobs:
             }
           }
 
-          // Shows Trimesters (1, 2, 3) and the 5 Folders: الدروس، الملخصات، الفروض، الاختبارات، الكتب
           class SubjectTrimestersPage extends StatefulWidget {
             final String levelCode;
             final String streamCode;
@@ -2214,7 +1350,7 @@ jobs:
 
           class _SubjectTrimestersPageState extends State__LT__SubjectTrimestersPage__GT__ {
             int _selectedTrimester = 1;
-            String _selectedCategory = 'lessons'; // 'lessons', 'summaries', 'tests', 'exams', 'books'
+            String _selectedCategory = 'lessons';
 
             @override
             Widget build(BuildContext context) {
@@ -2239,10 +1375,37 @@ jobs:
               return Scaffold(
                 appBar: AppBar(
                   title: Text('${ctrl.subjectTitle(widget.subjectId)} (${widget.levelCode})'),
+                  actions: [
+                    IconButton(
+                      tooltip: ctrl.tr('تحديث الملفات من السحابة', 'Actualiser', 'Refresh Cloud Files'),
+                      icon: ctrl.isSyncingCloud
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            )
+                          : const Icon(Icons.sync),
+                      onPressed: () async {
+                        final count = await ctrl.refreshCloudCatalog();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                ctrl.tr(
+                                  'تم تحديث القائمة من GitHub ($count ملف مكتشف)',
+                                  'Catalogue mis à jour ($count fichiers)',
+                                  'Catalog synced ($count files found)',
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ],
                 ),
                 body: Column(
                   children: [
-                    // Trimester Selector (Hidden when Books folder is selected since books are for the whole year)
                     if (_selectedCategory != 'books')
                       Container(
                         width: double.infinity,
@@ -2259,7 +1422,6 @@ jobs:
                         ),
                       ),
 
-                    // 5 Folders Row: الدروس، الملخصات، الفروض، الاختبارات، الكتب
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
@@ -2299,26 +1461,25 @@ jobs:
                     ),
                     const Divider(),
 
-                    // Uploaded Files List (or clean empty state if user hasn't uploaded files for this folder yet)
                     Expanded(
                       child: items.isEmpty
                           ? Center(
                               child: Padding(
-                                padding: const EdgeInsets.all(28),
+                                padding: const EdgeInsets.all(26),
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     const Icon(
-                                      Icons.folder_open_rounded,
+                                      Icons.cloud_upload_outlined,
                                       size: 64,
                                       color: Color(0xFF147A42),
                                     ),
                                     const SizedBox(height: 12),
                                     Text(
                                       ctrl.tr(
-                                        'لا توجد ملفات PDF أو صور مرفوعة في هذا المجلد حالياً',
-                                        'Aucun fichier PDF ou image dans ce dossier pour le moment',
-                                        'No PDF or image files uploaded in this folder yet',
+                                        'لا توجد ملفات مرفوعة في هذا المجلد حالياً',
+                                        'Aucun fichier dans ce dossier pour le moment',
+                                        'No files in this folder yet',
                                       ),
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(
@@ -2328,10 +1489,11 @@ jobs:
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      'لإضافة ملفات تلقائياً إلى هذا القسم، ارفع ملف PDF أو صورة في مجلد assets/ باسم يحتوي على:\n'
-                                      '${widget.levelCode.toLowerCase()}_${widget.subjectId}_t${_selectedTrimester}_$catKeyHint.pdf',
+                                      'ارفع ملف الـ PDF أو الصورة في مجلد files/ على GitHub باسم مثل:\n'
+                                      '${widget.levelCode.toLowerCase()}_${widget.subjectId}_t${_selectedTrimester}_$catKeyHint.pdf\n'
+                                      'ثم اضغط على زر التحديث (🔄) في الأعلى ليظهر فوراً بدون إعادة بناء التطبيق!',
                                       textAlign: TextAlign.center,
-                                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                                      style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
                                     ),
                                   ],
                                 ),
@@ -2343,6 +1505,7 @@ jobs:
                               itemBuilder: (context, idx) {
                                 final fileItem = items[idx];
                                 final isPdf = fileItem['type'] == 'pdf';
+                                final isCached = ctrl.isFileCachedLocally(fileItem);
 
                                 return Card(
                                   margin: const EdgeInsets.only(bottom: 12),
@@ -2361,16 +1524,37 @@ jobs:
                                       fileItem['title']?.toString() ?? '',
                                       style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                                     ),
-                                    subtitle: Text(
-                                      isPdf
-                                          ? ctrl.tr('ملف PDF • اضغط للفتح والمطالعة', 'Fichier PDF', 'PDF File')
-                                          : ctrl.tr('صورة • اضغط للعرض والتكبير', 'Image', 'Image File'),
+                                    subtitle: Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        isCached
+                                            ? ctrl.tr(
+                                                '✅ محفوظ في الهاتف (يعمل بدون إنترنت)',
+                                                '✅ Enregistré hors-ligne',
+                                                '✅ Saved Offline',
+                                              )
+                                            : ctrl.tr(
+                                                '☁️ سحابي • اضغط للتحميل والمطالعة (يُحفظ تلقائياً)',
+                                                '☁️ Appuyez pour télécharger et ouvrir',
+                                                '☁️ Tap to download & view offline',
+                                              ),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: isCached ? const Color(0xFF147A42) : Colors.orange.shade800,
+                                        ),
+                                      ),
                                     ),
-                                    trailing: const CircleAvatar(
-                                      radius: 16,
-                                      backgroundColor: Color(0xFF147A42),
-                                      child: Icon(Icons.arrow_forward_ios, color: Colors.white, size: 14),
-                                    ),
+                                    trailing: isCached
+                                        ? IconButton(
+                                            tooltip: ctrl.tr('حذف من ذاكرة الهاتف', 'Supprimer du cache', 'Delete offline copy'),
+                                            icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                                            onPressed: () =__GT__ ctrl.deleteCachedFile(fileItem),
+                                          )
+                                        : const CircleAvatar(
+                                            radius: 16,
+                                            backgroundColor: Color(0xFF147A42),
+                                            child: Icon(Icons.download, color: Colors.white, size: 16),
+                                          ),
                                     onTap: () {
                                       Navigator.push(
                                         context,
@@ -2459,7 +1643,6 @@ jobs:
             }
           }
 
-          // Built-in Offline Viewer for both PDFs (via Android native PdfRenderer) and Images
           class FileViewerPage extends StatefulWidget {
             final Map__LT__String, dynamic__GT__ fileItem;
 
@@ -2471,53 +1654,66 @@ jobs:
 
           class _FileViewerPageState extends State__LT__FileViewerPage__GT__ {
             static const _pdfChannel = MethodChannel('dz.studydz.app/pdf');
+            File? _localFile;
             int _pageCount = 0;
             int _currentPage = 0;
             Uint8List? _pageBytes;
             bool _loading = true;
             String? _error;
+            bool _initialized = false;
 
             @override
-            void initState() {
-              super.initState();
-              if (widget.fileItem['type'] == 'pdf') {
-                _initPdf();
-              } else {
-                _loading = false;
+            void didChangeDependencies() {
+              super.didChangeDependencies();
+              if (!_initialized) {
+                _initialized = true;
+                _prepareAndOpenFile();
               }
             }
 
-            Future__LT__void__GT__ _initPdf() async {
+            Future__LT__void__GT__ _prepareAndOpenFile() async {
+              final ctrl = AppScope.of(context);
+              setState(() {
+                _loading = true;
+                _error = null;
+              });
+
               try {
-                final path = widget.fileItem['path']?.toString() ?? '';
-                final count = await _pdfChannel.invokeMethod__LT__int__GT__(
-                  'getPageCount',
-                  {'assetPath': path},
-                );
-                _pageCount = count ?? 0;
-                if (_pageCount __GT__ 0) {
-                  await _loadPage(0);
+                final cachedFile = await ctrl.downloadAndCacheFile(widget.fileItem);
+                _localFile = cachedFile;
+
+                if (widget.fileItem['type'] == 'pdf') {
+                  final count = await _pdfChannel.invokeMethod__LT__int__GT__(
+                    'getPageCount',
+                    {'path': cachedFile.path},
+                  );
+                  _pageCount = count ?? 0;
+                  if (_pageCount __GT__ 0) {
+                    await _loadPage(0);
+                  } else {
+                    setState(() {
+                      _loading = false;
+                      _error = 'ملف PDF فارغ';
+                    });
+                  }
                 } else {
-                  setState(() {
-                    _loading = false;
-                    _error = 'ملف PDF فارغ';
-                  });
+                  setState(() =__GT__ _loading = false);
                 }
               } catch (e) {
                 setState(() {
                   _loading = false;
-                  _error = e.toString();
+                  _error = 'تأكد من اتصالك بالإنترنت عند فتح الملف لأول مرة فقط.\n($e)';
                 });
               }
             }
 
             Future__LT__void__GT__ _loadPage(int pageIdx) async {
+              if (_localFile == null) return;
               setState(() =__GT__ _loading = true);
               try {
-                final path = widget.fileItem['path']?.toString() ?? '';
                 final bytes = await _pdfChannel.invokeMethod__LT__Uint8List__GT__(
                   'renderPage',
-                  {'assetPath': path, 'pageIndex': pageIdx},
+                  {'path': _localFile!.path, 'pageIndex': pageIdx},
                 );
                 setState(() {
                   _currentPage = pageIdx;
@@ -2535,25 +1731,51 @@ jobs:
             @override
             Widget build(BuildContext context) {
               final title = widget.fileItem['title']?.toString() ?? '';
-              final path = widget.fileItem['path']?.toString() ?? '';
               final isPdf = widget.fileItem['type'] == 'pdf';
 
               return Scaffold(
                 appBar: AppBar(
                   title: Text(title),
                 ),
-                body: !isPdf
-                    ? InteractiveViewer(
-                        minScale: 0.8,
-                        maxScale: 5.0,
-                        child: Center(
-                          child: Image.asset(path, fit: BoxFit.contain),
+                body: _loading
+                    ? const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 14),
+                            Text('جاري التحميل والحفظ للمطالعة بدون إنترنت...'),
+                          ],
                         ),
                       )
-                    : _loading
-                        ? const Center(child: CircularProgressIndicator())
-                        : _error != null
-                            ? Center(child: Text('تعذر فتح الملف: $_error'))
+                    : _error != null
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.wifi_off, size: 52, color: Colors.red),
+                                  const SizedBox(height: 12),
+                                  Text(_error!, textAlign: TextAlign.center),
+                                  const SizedBox(height: 14),
+                                  FilledButton.icon(
+                                    onPressed: _prepareAndOpenFile,
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('إعادة المحاولة'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : !isPdf
+                            ? InteractiveViewer(
+                                minScale: 0.8,
+                                maxScale: 5.0,
+                                child: Center(
+                                  child: Image.file(_localFile!, fit: BoxFit.contain),
+                                ),
+                              )
                             : Column(
                                 children: [
                                   Expanded(
@@ -2605,1193 +1827,17 @@ jobs:
           }
           ''')
 
-          # 11. Write lib/screens/practice_screen.dart
-          write_file("lib/screens/practice_screen.dart", r'''import 'package:flutter/material.dart';
-
-          class PracticeScreen extends StatelessWidget {
-            const PracticeScreen({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              return const SizedBox.shrink();
-            }
-          }
-          ''')
-
-          # 12. Write lib/screens/tools_screen.dart (Exact eddirasa.com/average/ Template & Formulas for All Levels + BEM/BAC Exam Mode)
-          write_file("lib/screens/tools_screen.dart", r'''import 'package:flutter/material.dart';
-          import '../main.dart';
-
-          class ToolsScreen extends StatefulWidget {
-            const ToolsScreen({super.key});
-
-            @override
-            State__LT__ToolsScreen__GT__ createState() =__GT__ _ToolsScreenState();
-          }
-
-          class _ToolsScreenState extends State__LT__ToolsScreen__GT__ {
-            String? _calcLevel;
-            String? _calcStream;
-            bool _isOfficialExamMode = false; // false = المعدل الفصلي, true = معدل شهادة البيام / البكالوريا
-            bool _includeSport = true;
-            bool _includeAmazigh = false;
-            bool _includeArt = false;
-
-            // Stores marks per subject: 'taqwim' (التقويم), 'devoir' (الفرض), 'exam' (الاختبار)
-            final Map__LT__String, double__GT__ _taqwimMarks = {};
-            final Map__LT__String, double__GT__ _devoirMarks = {};
-            final Map__LT__String, double__GT__ _examMarks = {};
-
-            int _resetVersion = 0;
-
-            double _getTaqwim(String key, double defaultVal) =__GT__ _taqwimMarks[key] ?? defaultVal;
-            double _getDevoir(String key, double defaultVal) =__GT__ _devoirMarks[key] ?? defaultVal;
-            double _getExam(String key, double defaultVal) =__GT__ _examMarks[key] ?? defaultVal;
-
-            // Eddirasa.com formula for a single subject
-            double _subjectAverage({
-              required String key,
-              required bool isPrimary,
-              required bool isExamCertificateMode,
-            }) {
-              if (isPrimary) {
-                return _getExam(key, 8.0).clamp(0.0, 10.0);
-              }
-              if (isExamCertificateMode) {
-                return _getExam(key, 12.0).clamp(0.0, 20.0);
-              }
-              // Official Moyen & Secondaire Term Formula on eddirasa.com:
-              // معدل المادة = ((الفرض + التقويم المستمر)/2 + الاختبار*2) / 3
-              final t = _getTaqwim(key, 14.0).clamp(0.0, 20.0);
-              final d = _getDevoir(key, 13.0).clamp(0.0, 20.0);
-              final ex = _getExam(key, 13.0).clamp(0.0, 20.0);
-              return (((t + d) / 2.0) + (ex * 2.0)) / 3.0;
-            }
-
-            String _mentionLabel(double avg, bool isPrimary, AppController ctrl) {
-              final normalized20 = isPrimary ? avg * 2.0 : avg;
-              if (normalized20 __GT__= 16) {
-                return ctrl.tr('التقدير: جيد جداً 🌟 (Très Bien)', 'Mention : Très Bien 🌟', 'Mention: Very Good 🌟');
-              }
-              if (normalized20 __GT__= 14) {
-                return ctrl.tr('التقدير: جيد 👏 (Bien)', 'Mention : Bien 👏', 'Mention: Good 👏');
-              }
-              if (normalized20 __GT__= 12) {
-                return ctrl.tr('التقدير: قريب من الجيد (Assez Bien)', 'Mention : Assez Bien', 'Mention: Fairly Good');
-              }
-              if (normalized20 __GT__= 10) {
-                return ctrl.tr('التقدير: مقبول ✅ (Passable)', 'Mention : Passable ✅', 'Mention: Pass ✅');
-              }
-              return ctrl.tr('دون المعدل — واصل الاجتهاد 💪', 'Sous la moyenne 💪', 'Below Average 💪');
-            }
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final activeLevel = _calcLevel ?? ctrl.currentProfile.levelCode;
-              final isPrimary = activeLevel.endsWith('AP');
-              final is1AS = activeLevel == '1AS';
-              final is2AS3AS = activeLevel == '2AS' || activeLevel == '3AS';
-              final canHaveOfficialExamMode = activeLevel == '4AM' || activeLevel == '3AS';
-              final effectiveExamMode = canHaveOfficialExamMode && _isOfficialExamMode;
-
-              final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
-              String activeStream = _calcStream ?? ctrl.currentProfile.streamCode;
-              if ((is1AS || is2AS3AS) && !streams.any((s) =__GT__ s['code'] == activeStream)) {
-                activeStream = streams.first['code']!;
-              }
-
-              final coeffsMap = ctrl.getCoefficientsForLevel(
-                activeLevel,
-                activeStream,
-                includeSport: _includeSport,
-                includeAmazigh: _includeAmazigh,
-                includeArt: _includeArt,
-              );
-
-              // In BEM official certificate mode, CS & Civics are not in the removed list, CS is not a BEM exam subject
-              if (effectiveExamMode && activeLevel == '4AM') {
-                coeffsMap.remove('cs');
-              }
-
-              final subjectIds = coeffsMap.keys.toList();
-
-              int totalCoeffs = 0;
-              double totalPoints = 0.0;
-
-              for (final subjId in subjectIds) {
-                final key = '${activeLevel}_${activeStream}_${effectiveExamMode}_$subjId';
-                final sAvg = _subjectAverage(
-                  key: key,
-                  isPrimary: isPrimary,
-                  isExamCertificateMode: effectiveExamMode,
-                );
-                final c = coeffsMap[subjId] ?? 1;
-
-                // On eddirasa.com BEM calculator: Art/Music only counts points above 10 as bonus with 0 added to totalCoeffs
-                if (effectiveExamMode && activeLevel == '4AM' && subjId == 'art') {
-                  if (sAvg __GT__ 10.0) {
-                    totalPoints += (sAvg - 10.0);
-                  }
-                } else {
-                  totalCoeffs += c;
-                  totalPoints += sAvg * c;
-                }
-              }
-
-              final finalAverage = totalCoeffs == 0 ? 0.0 : totalPoints / totalCoeffs;
-              final maxScale = isPrimary ? 10 : 20;
-
-              return Scaffold(
-                appBar: AppBar(
-                  title: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.calculate_rounded, color: Color(0xFFF5B800), size: 26),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          ctrl.tr('حاسبة المعدل الدراسي', 'Calculateur de Moyenne', 'Average Calculator'),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                body: ListView(
-                  padding: const EdgeInsets.all(14),
-                  children: [
-                    // Top Level & Stream Card (Eddirasa.com header style)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Quick Cycle Pills (ابتدائي / متوسط / ثانوي)
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: AppController.allLevels.map((lvl) {
-                                  final code = lvl['code']!;
-                                  final selected = code == activeLevel;
-                                  return Padding(
-                                    padding: const EdgeInsets.only(left: 6, right: 2),
-                                    child: ChoiceChip(
-                                      label: Text(
-                                        code,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          color: selected ? Colors.white : const Color(0xFF147A42),
-                                        ),
-                                      ),
-                                      selected: selected,
-                                      selectedColor: const Color(0xFF147A42),
-                                      onSelected: (_) {
-                                        setState(() {
-                                          _calcLevel = code;
-                                          _isOfficialExamMode = false;
-                                          if (code == '1AS') {
-                                            _calcStream = 'TC_ST';
-                                          } else if (code == '2AS' || code == '3AS') {
-                                            _calcStream = 'SE';
-                                          } else {
-                                            _calcStream = '';
-                                          }
-                                        });
-                                      },
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            DropdownButtonFormField__LT__String__GT__(
-                              value: activeLevel,
-                              decoration: InputDecoration(
-                                labelText: ctrl.tr('السنة الدراسية', 'Niveau scolaire', 'Grade Level'),
-                                prefixIcon: const Icon(Icons.school, color: Color(0xFF147A42)),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              ),
-                              items: AppController.allLevels
-                                  .map((lvl) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                        value: lvl['code']!,
-                                        child: Text(ctrl.tr(lvl['ar']!, lvl['fr']!, lvl['en'])),
-                                      ))
-                                  .toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setState(() {
-                                    _calcLevel = val;
-                                    _isOfficialExamMode = false;
-                                    if (val == '1AS') {
-                                      _calcStream = 'TC_ST';
-                                    } else if (val == '2AS' || val == '3AS') {
-                                      _calcStream = 'SE';
-                                    } else {
-                                      _calcStream = '';
-                                    }
-                                  });
-                                }
-                              },
-                            ),
-                            if (is1AS || is2AS3AS) ...[
-                              const SizedBox(height: 10),
-                              DropdownButtonFormField__LT__String__GT__(
-                                value: activeStream,
-                                decoration: InputDecoration(
-                                  labelText: ctrl.tr('الشعبة / الجذع المشترك', 'Filière', 'Stream'),
-                                  prefixIcon: const Icon(Icons.account_tree_outlined, color: Color(0xFF147A42)),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                ),
-                                items: streams
-                                    .map((s) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                          value: s['code']!,
-                                          child: Text(ctrl.tr(s['ar']!, s['fr']!, s['en'])),
-                                        ))
-                                    .toList(),
-                                onChanged: (val) {
-                                  if (val != null) {
-                                    setState(() =__GT__ _calcStream = val);
-                                  }
-                                },
-                              ),
-                            ],
-
-                            // Toggle between Term Average and BEM / BAC Certificate Mode for 4AM and 3AS
-                            if (canHaveOfficialExamMode) ...[
-                              const SizedBox(height: 12),
-                              SegmentedButton__LT__bool__GT__(
-                                segments: [
-                                  ButtonSegment(
-                                    value: false,
-                                    label: Text(ctrl.tr('حساب المعدل الفصلي', 'Moyenne Trimestrielle', 'Term Average')),
-                                  ),
-                                  ButtonSegment(
-                                    value: true,
-                                    label: Text(
-                                      activeLevel == '4AM'
-                                          ? ctrl.tr('حساب معدل شهادة البيام BEM', 'Moyenne BEM', 'BEM Exam')
-                                          : ctrl.tr('حساب معدل البكالوريا BAC', 'Moyenne BAC', 'BAC Exam'),
-                                    ),
-                                  ),
-                                ],
-                                selected: {_isOfficialExamMode},
-                                onSelectionChanged: (s) {
-                                  setState(() =__GT__ _isOfficialExamMode = s.first);
-                                },
-                              ),
-                            ],
-
-                            const SizedBox(height: 12),
-                            // Optional Subject Toggles (تربية بدنية، أمازيغية، تربية تشكيلية) just like eddirasa.com
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                FilterChip(
-                                  label: Text(ctrl.tr('تربية بدنية', 'Sport', 'Sport')),
-                                  selected: _includeSport,
-                                  onSelected: (v) =__GT__ setState(() =__GT__ _includeSport = v),
-                                ),
-                                if (activeLevel != '1AP' && activeLevel != '2AP')
-                                  FilterChip(
-                                    label: Text(ctrl.tr('لغة أمازيغية', 'Amazigh', 'Amazigh')),
-                                    selected: _includeAmazigh,
-                                    onSelected: (v) =__GT__ setState(() =__GT__ _includeAmazigh = v),
-                                  ),
-                                if (!is2AS3AS)
-                                  FilterChip(
-                                    label: Text(ctrl.tr('تربية تشكيلية/موسيقية', 'Art/Musique', 'Art/Music')),
-                                    selected: _includeArt,
-                                    onSelected: (v) =__GT__ setState(() =__GT__ _includeArt = v),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    // Formula Explanation Box matching Eddirasa
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE8F5E9),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFF147A42).withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        isPrimary
-                            ? '📌 طريقة الحساب (الطور الابتدائي): العلامات من 10، والمعدل الفصلي = مجموع علامات المواد ÷ عدد المواد.'
-                            : effectiveExamMode
-                                ? '📌 طريقة حساب معدل الشهادة الرسمية: (علامة كل مادة × معاملها) ÷ مجموع المعاملات ($totalCoeffs).'
-                                : '📌 طريقة حساب معدل المادة (موقع الدراسة الجزائري):\nمعدل المادة = ((التقويم + الفرض) ÷ 2 + الاختبار × 2) ÷ 3  |  المعدل = مجموع النقاط ÷ مجموع المعاملات ($totalCoeffs).',
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF0E4B29),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // Eddirasa-style Subject Rows
-                    for (final subjId in subjectIds)
-                      _buildEddirasaSubjectCard(
-                        ctrl: ctrl,
-                        activeLevel: activeLevel,
-                        activeStream: activeStream,
-                        subjId: subjId,
-                        coeff: coeffsMap[subjId] ?? 1,
-                        isPrimary: isPrimary,
-                        isExamCertificateMode: effectiveExamMode,
-                      ),
-
-                    const SizedBox(height: 14),
-
-                    // Final Eddirasa Result Summary Card (المعاملات | النقاط | معدلك المحسوب)
-                    Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF147A42), Color(0xFF0F5E32)],
-                        ),
-                        borderRadius: BorderRadius.circular(22),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.14),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Text(
-                                        ctrl.tr('مجموع المعاملات', 'Coefficients', 'Total Coeffs'),
-                                        style: const TextStyle(color: Colors.white70, fontSize: 12.5),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '$totalCoeffs',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 20,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.14),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Text(
-                                        ctrl.tr('مجموع النقاط', 'Total Points', 'Total Points'),
-                                        style: const TextStyle(color: Colors.white70, fontSize: 12.5),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        totalPoints.toStringAsFixed(2),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 20,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  ctrl.tr('معدلك المحسوب', 'Votre Moyenne Calculée', 'Your Calculated Average'),
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black54,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${finalAverage.toStringAsFixed(2)} / $maxScale',
-                                  style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.w900,
-                                    color: Color(0xFF147A42),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _mentionLabel(finalAverage, isPrimary, ctrl),
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF0E4B29),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              side: const BorderSide(color: Colors.white54),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _taqwimMarks.clear();
-                                _devoirMarks.clear();
-                                _examMarks.clear();
-                                _resetVersion++;
-                              });
-                            },
-                            icon: const Icon(Icons.refresh),
-                            label: Text(ctrl.tr('مسح وإعادة ضبط العلامات', 'Réinitialiser', 'Reset Marks')),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                ),
-              );
-            }
-
-            Widget _buildEddirasaSubjectCard({
-              required AppController ctrl,
-              required String activeLevel,
-              required String activeStream,
-              required String subjId,
-              required int coeff,
-              required bool isPrimary,
-              required bool isExamCertificateMode,
-            }) {
-              final key = '${activeLevel}_${activeStream}_${isExamCertificateMode}_$subjId';
-              final subjAvg = _subjectAverage(
-                key: key,
-                isPrimary: isPrimary,
-                isExamCertificateMode: isExamCertificateMode,
-              );
-              final isBemBonusArt = isExamCertificateMode && activeLevel == '4AM' && subjId == 'art';
-              final subjPoints = isBemBonusArt
-                  ? (subjAvg __GT__ 10.0 ? subjAvg - 10.0 : 0.0)
-                  : subjAvg * coeff;
-
-              return Card(
-                key: ValueKey('card_${_resetVersion}_$key'),
-                margin: const EdgeInsets.only(bottom: 10),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(ctrl.subjectEmoji(subjId), style: const TextStyle(fontSize: 24)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              ctrl.subjectTitle(subjId),
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF147A42).withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              isBemBonusArt
-                                  ? 'نقاط إضافية (>10)'
-                                  : '${ctrl.tr("المعامل", "Coeff", "Coeff")}: $coeff',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                                color: Color(0xFF147A42),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      if (isPrimary || isExamCertificateMode)
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 3,
-                              child: TextFormField(
-                                initialValue: _getExam(key, isPrimary ? 8.0 : 12.0).toString(),
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                textAlign: TextAlign.center,
-                                decoration: InputDecoration(
-                                  labelText: isPrimary
-                                      ? ctrl.tr('علامة الاختبار (/10)', 'Note (/10)', 'Exam (/10)')
-                                      : ctrl.tr('علامة الشهادة (/20)', 'Note (/20)', 'Exam (/20)'),
-                                  isDense: true,
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                                onChanged: (v) {
-                                  final parsed = double.tryParse(v);
-                                  if (parsed != null) {
-                                    setState(() {
-                                      _examMarks[key] = parsed.clamp(0.0, isPrimary ? 10.0 : 20.0);
-                                    });
-                                  }
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              flex: 2,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFE8F5E9),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  '${ctrl.tr("النقاط", "Pts", "Pts")}: ${subjPoints.toStringAsFixed(2)}',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    color: Color(0xFF147A42),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        )
-                      else
-                        Column(
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    initialValue: _getTaqwim(key, 14.0).toString(),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    textAlign: TextAlign.center,
-                                    decoration: InputDecoration(
-                                      labelText: ctrl.tr('التقويم /20', 'Éval /20', 'CC /20'),
-                                      isDense: true,
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                                    ),
-                                    onChanged: (v) {
-                                      final p = double.tryParse(v);
-                                      if (p != null) {
-                                        setState(() =__GT__ _taqwimMarks[key] = p.clamp(0.0, 20.0));
-                                      }
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextFormField(
-                                    initialValue: _getDevoir(key, 13.0).toString(),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    textAlign: TextAlign.center,
-                                    decoration: InputDecoration(
-                                      labelText: ctrl.tr('الفرض /20', 'Devoir /20', 'Test /20'),
-                                      isDense: true,
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                                    ),
-                                    onChanged: (v) {
-                                      final p = double.tryParse(v);
-                                      if (p != null) {
-                                        setState(() =__GT__ _devoirMarks[key] = p.clamp(0.0, 20.0));
-                                      }
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextFormField(
-                                    initialValue: _getExam(key, 13.0).toString(),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    textAlign: TextAlign.center,
-                                    decoration: InputDecoration(
-                                      labelText: ctrl.tr('الاختبار /20', 'Examen /20', 'Exam /20'),
-                                      isDense: true,
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                                    ),
-                                    onChanged: (v) {
-                                      final p = double.tryParse(v);
-                                      if (p != null) {
-                                        setState(() =__GT__ _examMarks[key] = p.clamp(0.0, 20.0));
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE8F5E9),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    '${ctrl.tr("معدل المادة", "Moyenne matière", "Subject Avg")}: ${subjAvg.toStringAsFixed(2)} / 20',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12.5,
-                                      color: Color(0xFF0E4B29),
-                                    ),
-                                  ),
-                                  Text(
-                                    '${ctrl.tr("المجموع", "Total", "Points")}: ${subjPoints.toStringAsFixed(2)}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 12.5,
-                                      color: Color(0xFF147A42),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            }
-          }
-          ''')
-
-          # 13. Write lib/screens/profile_screen.dart
-          write_file("lib/screens/profile_screen.dart", r'''import 'package:flutter/material.dart';
-          import '../main.dart';
-
-          class ProfileScreen extends StatelessWidget {
-            const ProfileScreen({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              return const AccountManagementPage();
-            }
-          }
-
-          class AppDrawerMenu extends StatelessWidget {
-            const AppDrawerMenu({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final p = ctrl.currentProfile;
-              final avatar = p.gender == 'female' ? '👧🏻' : '👦🏻';
-
-              return Drawer(
-                child: Column(
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.fromLTRB(20, 48, 20, 24),
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF0F6334), Color(0xFF147A42)],
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            radius: 34,
-                            backgroundColor: Colors.white.withOpacity(0.2),
-                            child: Text(avatar, style: const TextStyle(fontSize: 38)),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            p.name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            ctrl.isGoogleSignedIn
-                                ? 'Google: ${ctrl.accountEmail}'
-                                : ctrl.levelLabel(p.levelCode),
-                            style: const TextStyle(color: Colors.white70, fontSize: 13.5),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        children: [
-                          ListTile(
-                            leading: const Icon(Icons.person_outline, color: Color(0xFF147A42)),
-                            title: Text(
-                              ctrl.tr('حسابي الشخصي', 'Mon Compte', 'My Account'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Text(
-                              ctrl.tr(
-                                'الاسم، الجنس (ذكر/أنثى)، وحساب Google',
-                                'Nom, sexe et connexion Google',
-                                'Name, gender & Google Sign-In',
-                              ),
-                            ),
-                            onTap: () {
-                              Navigator.pop(context);
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) =__GT__ const AccountManagementPage()),
-                              );
-                            },
-                          ),
-                          const Divider(),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Icon(Icons.language, color: Color(0xFF147A42)),
-                                    const SizedBox(width: 12),
-                                    Text(
-                                      ctrl.tr('اللغة / Language', 'Langue', 'Language'),
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                SegmentedButton__LT__String__GT__(
-                                  segments: const [
-                                    ButtonSegment(value: 'ar', label: Text('العربية')),
-                                    ButtonSegment(value: 'fr', label: Text('Français')),
-                                    ButtonSegment(value: 'en', label: Text('English')),
-                                  ],
-                                  selected: {ctrl.languageCode},
-                                  onSelectionChanged: (s) {
-                                    ctrl.languageCode = s.first;
-                                    ctrl.saveState();
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Divider(),
-                          SwitchListTile(
-                            secondary: const Icon(Icons.dark_mode_outlined, color: Color(0xFF147A42)),
-                            title: Text(
-                              ctrl.tr('الوضع الليلي', 'Mode Sombre', 'Dark Mode'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            value: ctrl.isDarkMode,
-                            onChanged: (v) {
-                              ctrl.isDarkMode = v;
-                              ctrl.saveState();
-                            },
-                          ),
-                          const Divider(),
-                          ListTile(
-                            leading: const Icon(Icons.info_outline, color: Color(0xFF147A42)),
-                            title: Text(
-                              ctrl.tr('من نحن', 'À propos de nous', 'About Us'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            onTap: () {
-                              Navigator.pop(context);
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) =__GT__ const AboutUsPage()),
-                              );
-                            },
-                          ),
-                          ListTile(
-                            leading: const Icon(Icons.privacy_tip_outlined, color: Color(0xFF147A42)),
-                            title: Text(
-                              ctrl.tr('سياسة الخصوصية', 'Politique de confidentialité', 'Privacy Policy'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            onTap: () {
-                              Navigator.pop(context);
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) =__GT__ const PrivacyPolicyPage()),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-
-          class AccountManagementPage extends StatefulWidget {
-            const AccountManagementPage({super.key});
-
-            @override
-            State__LT__AccountManagementPage__GT__ createState() =__GT__ _AccountManagementPageState();
-          }
-
-          class _AccountManagementPageState extends State__LT__AccountManagementPage__GT__ {
-            late TextEditingController _nameCtrl;
-            late TextEditingController _emailCtrl;
-
-            @override
-            void initState() {
-              super.initState();
-              _nameCtrl = TextEditingController();
-              _emailCtrl = TextEditingController();
-            }
-
-            @override
-            void didChangeDependencies() {
-              super.didChangeDependencies();
-              final ctrl = AppScope.of(context);
-              _nameCtrl.text = ctrl.currentProfile.name;
-              _emailCtrl.text = ctrl.accountEmail.isEmpty
-                  ? 'walid.studydz@gmail.com'
-                  : ctrl.accountEmail;
-            }
-
-            @override
-            void dispose() {
-              _nameCtrl.dispose();
-              _emailCtrl.dispose();
-              super.dispose();
-            }
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final p = ctrl.currentProfile;
-
-              return Scaffold(
-                appBar: AppBar(
-                  title: Text(ctrl.tr('حسابي الشخصي', 'Mon Compte', 'My Account')),
-                ),
-                body: ListView(
-                  padding: const EdgeInsets.all(18),
-                  children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Center(
-                              child: CircleAvatar(
-                                radius: 42,
-                                backgroundColor: const Color(0xFF147A42).withOpacity(0.14),
-                                child: Text(
-                                  p.gender == 'female' ? '👧🏻' : '👦🏻',
-                                  style: const TextStyle(fontSize: 48),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            TextField(
-                              controller: _nameCtrl,
-                              decoration: InputDecoration(
-                                labelText: ctrl.tr('الاسم', 'Prénom', 'Name'),
-                                prefixIcon: const Icon(Icons.person_outline),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              ctrl.tr('الجنس:', 'Sexe :', 'Gender:'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ChoiceChip(
-                                    label: Text('👦🏻 ${ctrl.tr("ذكر", "Garçon", "Male")}'),
-                                    selected: p.gender == 'male',
-                                    onSelected: (_) {
-                                      setState(() =__GT__ p.gender = 'male');
-                                      ctrl.saveState();
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: ChoiceChip(
-                                    label: Text('👧🏻 ${ctrl.tr("أنثى", "Fille", "Female")}'),
-                                    selected: p.gender == 'female',
-                                    onSelected: (_) {
-                                      setState(() =__GT__ p.gender = 'female');
-                                      ctrl.saveState();
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF147A42),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                              ),
-                              onPressed: () {
-                                if (_nameCtrl.text.trim().isNotEmpty) {
-                                  p.name = _nameCtrl.text.trim();
-                                  ctrl.saveState();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        ctrl.tr('تم حفظ معلومات الحساب بنجاح', 'Profil enregistré', 'Profile saved'),
-                                      ),
-                                    ),
-                                  );
-                                }
-                              },
-                              icon: const Icon(Icons.save_outlined),
-                              label: Text(ctrl.tr('حفظ التعديلات', 'Enregistrer', 'Save Changes')),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                const CircleAvatar(
-                                  backgroundColor: Colors.red,
-                                  foregroundColor: Colors.white,
-                                  child: Text('G', style: TextStyle(fontWeight: FontWeight.w900)),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    ctrl.isGoogleSignedIn
-                                        ? ctrl.tr(
-                                            'مرتبط بحساب Google: ${ctrl.accountEmail}',
-                                            'Connecté avec Google : ${ctrl.accountEmail}',
-                                            'Signed in with Google: ${ctrl.accountEmail}',
-                                          )
-                                        : ctrl.tr(
-                                            'ربط أو تسجيل الدخول بحساب Google',
-                                            'Se connecter avec Google',
-                                            'Sign in with Google',
-                                          ),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            TextField(
-                              controller: _emailCtrl,
-                              keyboardType: TextInputType.emailAddress,
-                              decoration: InputDecoration(
-                                labelText: ctrl.tr('بريد حساب Google', 'Adresse Gmail', 'Google Email'),
-                                prefixIcon: const Icon(Icons.email_outlined),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 13),
-                              ),
-                              onPressed: () {
-                                ctrl.isGoogleSignedIn = true;
-                                ctrl.isGuest = false;
-                                ctrl.accountEmail = _emailCtrl.text.trim();
-                                if (_nameCtrl.text.trim().isNotEmpty) {
-                                  p.name = _nameCtrl.text.trim();
-                                  ctrl.accountName = p.name;
-                                }
-                                ctrl.saveState();
-                                setState(() {});
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      ctrl.tr(
-                                        'تم تسجيل الدخول بحساب Google بنجاح!',
-                                        'Connecté avec Google !',
-                                        'Signed in with Google successfully!',
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.login),
-                              label: Text(
-                                ctrl.tr(
-                                  'تسجيل الدخول باستخدام Google',
-                                  'Connexion Google',
-                                  'Sign in with Google',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-
-          class AboutUsPage extends StatelessWidget {
-            const AboutUsPage({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              return Scaffold(
-                appBar: AppBar(
-                  title: Text(ctrl.tr('من نحن', 'À propos de nous', 'About Us')),
-                ),
-                body: ListView(
-                  padding: const EdgeInsets.all(18),
-                  children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Study DZ • ستدي دي زد 🇩🇿',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF147A42),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              ctrl.tr(
-                                'منصة تعليمية جزائرية شاملة صُممت لمرافقة التلاميذ في جميع الأطوار التعليمية الثلاثة (الابتدائي، المتوسط، الثانوي) مع الدروس، الملخصات، الفروض، الاختبارات، الكتب المدرسية، وحاسبة المعدل المعتمدة.\n\n'
-                                'إخلاء مسؤولية: هذا التطبيق مبادرة تعليمية مستقلة وغير تابع لوزارة التربية الوطنية أو الديوان الوطني للامتحانات والمسابقات (ONEC).',
-                                'Study DZ est une application éducative algérienne couvrant le Primaire, le Moyen (BEM) et le Secondaire (BAC).',
-                                'Study DZ is an Algerian educational platform covering Primary, Middle (BEM), and High School (BAC) levels.',
-                              ),
-                              style: const TextStyle(fontSize: 15.5, height: 1.7),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-
-          class PrivacyPolicyPage extends StatelessWidget {
-            const PrivacyPolicyPage({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              return Scaffold(
-                appBar: AppBar(
-                  title: Text(ctrl.tr('سياسة الخصوصية', 'Politique de confidentialité', 'Privacy Policy')),
-                ),
-                body: ListView(
-                  padding: const EdgeInsets.all(18),
-                  children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              ctrl.tr('سياسة الخصوصية وحماية البيانات', 'Protection des données', 'Data Privacy Policy'),
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF147A42),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              ctrl.tr(
-                                '1. التخزين المحلي الكامل: يتم حفظ جميع بياناتك وعلاماتك محلياً داخل ذاكرة هاتفك فقط.\n\n'
-                                '2. عدم مشاركة البيانات: لا نقوم ببيع أو مشاركة أي بيانات شخصية مع أي طرف ثالث.',
-                                'Toutes vos préférences et notes sont enregistrées localement sur votre téléphone.',
-                                'All profile settings and calculated marks are stored locally on your device.',
-                              ),
-                              style: const TextStyle(fontSize: 15.5, height: 1.7),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-          ''')
-
-          # 14. Ensure pubspec.yaml includes all discovered asset directories
+          # 9. Keep onboarding_screen.dart, home_shell.dart, tools_screen.dart, profile_screen.dart, practice_screen.dart intact
+          # (Ensuring pubspec.yaml is clean and lightweight)
           with open("pubspec.yaml", "r", encoding="utf-8") as f:
               pub = f.read()
           pub = re.sub(r"^name:\s*.*$", "name: study_dz", pub, flags=re.MULTILINE)
-
-          # Make sure any subfolder inside assets/ is registered in pubspec.yaml
-          for d in sorted(all_asset_dirs):
-              if d != "assets/" and f"- {d}" not in pub:
-                  pub = pub.replace("- assets/", f"- assets/\n    - {d}")
-
           if "dependency_overrides:" not in pub:
               pub += "\ndependency_overrides:\n  flutter_tts: 4.0.2\n  flutter_local_notifications: 17.2.3\n  shared_preferences: 2.2.3\n  path_provider: 2.1.4\n  sqflite: 2.3.3+1\n"
           with open("pubspec.yaml", "w", encoding="utf-8") as f:
               f.write(pub)
 
-          # 15. Upgrade AGP & Kotlin in android/settings.gradle
+          # 10. Upgrade AGP & Kotlin in android/settings.gradle
           with open("android/settings.gradle", "r", encoding="utf-8") as f:
               sg = f.read()
           sg = re.sub(r'id\s+"com\.android\.application"\s+version\s+"[^"]+"', 'id "com.android.application" version "8.3.2"', sg)
@@ -3799,7 +1845,7 @@ jobs:
           with open("android/settings.gradle", "w", encoding="utf-8") as f:
               f.write(sg)
 
-          # 16. Upgrade Gradle Wrapper to 8.4
+          # 11. Upgrade Gradle Wrapper to 8.4
           gw_path = "android/gradle/wrapper/gradle-wrapper.properties"
           with open(gw_path, "r", encoding="utf-8") as f:
               gw = f.read()
@@ -3807,7 +1853,7 @@ jobs:
           with open(gw_path, "w", encoding="utf-8") as f:
               f.write(gw)
 
-          # 17. Write android/app/build.gradle
+          # 12. Write android/app/build.gradle
           write_file("android/app/build.gradle", r'''plugins {
               id "com.android.application"
               id "kotlin-android"
@@ -3833,8 +1879,8 @@ jobs:
                   applicationId = "dz.studydz.app"
                   minSdk = 21
                   targetSdk = 34
-                  versionCode = 3
-                  versionName = "3.0.0"
+                  versionCode = 4
+                  versionName = "4.0.0"
                   multiDexEnabled true
               }
 
@@ -3857,7 +1903,7 @@ jobs:
           }
           ''')
 
-          # 18. Copy custom app icon if present
+          # 13. Copy custom app icon if present
           for icon_candidate in ["icon.png", "assets/icon.png"]:
               if os.path.exists(icon_candidate):
                   for folder in ["mipmap-mdpi", "mipmap-hdpi", "mipmap-xhdpi", "mipmap-xxhdpi", "mipmap-xxxhdpi"]:
@@ -3865,16 +1911,11 @@ jobs:
                       if os.path.exists(os.path.dirname(dest)):
                           shutil.copy2(icon_candidate, dest)
 
-          # 19. Generate offline bundle so APK is guaranteed >= 75 MB
-          os.makedirs("assets", exist_ok=True)
-          with open("assets/offline_study_pack.bin", "wb") as f:
-              f.write(os.urandom(78 * 1024 * 1024))
-
-          # 20. Build Release APK
+          # 14. Build Lightweight Release APK
           run_cmd(["flutter", "pub", "get"])
           run_cmd(["flutter", "build", "apk", "--release", "--no-tree-shake-icons"])
 
-      - name: Verify APK Size
+      - name: Check Final APK Size
         run: |
           APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
           ls -lh "$APK_PATH"
