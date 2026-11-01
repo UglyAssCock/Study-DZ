@@ -37,6 +37,9 @@ jobs:
           LT = chr(60)
           GT = chr(62)
 
+          def G(inner):
+              return LT + inner + GT
+
           def run_cmd(cmd):
               print("Running:", " ".join(cmd))
               subprocess.run(cmd, check=True)
@@ -48,7 +51,7 @@ jobs:
               shutil.rmtree("/tmp/study_dz_backup/lib")
           shutil.copytree("lib", "/tmp/study_dz_backup/lib")
 
-          # 2. Generate Android platform folder with valid package name
+          # 2. Generate Android platform folder
           run_cmd([
               "flutter", "create",
               "--platforms=android",
@@ -61,10 +64,20 @@ jobs:
           shutil.copy2("/tmp/study_dz_backup/pubspec.yaml", "pubspec.yaml")
           shutil.copytree("/tmp/study_dz_backup/lib", "lib", dirs_exist_ok=True)
 
-          # 4. Repair stripped angle brackets, CardTheme, and withValues() in all lib/**/*.dart files
-          def G(inner):
-              return LT + inner + GT
+          # 4. Fix MainActivity.kt package mismatch so the app never crashes on launch
+          kotlin_root = "android/app/src/main/kotlin"
+          java_root = "android/app/src/main/java"
+          if os.path.exists(kotlin_root):
+              shutil.rmtree(kotlin_root)
+          if os.path.exists(java_root):
+              shutil.rmtree(java_root)
 
+          main_act_dir = "android/app/src/main/kotlin/dz/studydz/app"
+          os.makedirs(main_act_dir, exist_ok=True)
+          with open(os.path.join(main_act_dir, "MainActivity.kt"), "w", encoding="utf-8") as f:
+              f.write("package dz.studydz.app\n\nimport io.flutter.embedding.android.FlutterActivity\n\nclass MainActivity: FlutterActivity()\n")
+
+          # 5. Repair stripped angle brackets, CardTheme, and startup in all lib/**/*.dart files
           state_classes = [
               ("_OnboardingScreenState", "OnboardingScreen"),
               ("_SubjectsScreenState", "SubjectsScreen"),
@@ -94,6 +107,22 @@ jobs:
                   c = c.replace("CardThemeData(", "CardTheme(")
                   c = re.sub(r"\.withValues\(\s*alpha:\s*([^)]+)\)", r".withOpacity(\1)", c)
 
+                  # Make main() non-blocking and crash-proof on startup
+                  if fname == "main.dart":
+                      old_main = """void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final controller = AppController();
+  await controller.initialize();
+  runApp(StudyDzApp(controller: controller));
+}"""
+                      new_main = """void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  final controller = AppController();
+  controller.initialize();
+  runApp(StudyDzApp(controller: controller));
+}"""
+                      c = c.replace(old_main, new_main)
+
                   # Restore AppScope generics
                   c = re.sub(
                       r"class AppScope extends InheritedNotifier\b(?!\s*" + LT + ")",
@@ -110,6 +139,16 @@ jobs:
                       pattern = r"class " + st_cls + r" extends State\b(?!\s*" + LT + ")"
                       replacement = "class " + st_cls + " extends State" + G(w_cls)
                       c = re.sub(pattern, replacement, c)
+
+                  # Restore UI widget generics that cause runtime TypeError if stripped
+                  c = re.sub(r"DropdownButtonFormField\b(?!\s*" + LT + ")", "DropdownButtonFormField" + G("String"), c)
+                  c = re.sub(r"DropdownMenuItem\b(?!\s*" + LT + ")", "DropdownMenuItem" + G("String"), c)
+                  c = c.replace("AlwaysStoppedAnimation(", "AlwaysStoppedAnimation" + G("Color") + "(")
+
+                  if fname == "subjects_screen.dart":
+                      c = re.sub(r"SegmentedButton\b(?!\s*" + LT + ")", "SegmentedButton" + G("int"), c)
+                  elif fname == "profile_screen.dart":
+                      c = re.sub(r"SegmentedButton\b(?!\s*" + LT + ")", "SegmentedButton" + G("String"), c)
 
                   # Restore broken nested generics that left a trailing GT
                   c = c.replace("Map" + GT + "? subjectScores", "Map" + G("String, List" + G("int")) + "? subjectScores")
@@ -159,7 +198,7 @@ jobs:
                   with open(fpath, "w", encoding="utf-8") as f:
                       f.write(c)
 
-          # 5. Fix pubspec.yaml name and dependency_overrides
+          # 6. Fix pubspec.yaml name and dependency_overrides
           with open("pubspec.yaml", "r", encoding="utf-8") as f:
               pub = f.read()
           pub = re.sub(r"^name:\s*.*$", "name: study_dz", pub, flags=re.MULTILINE)
@@ -168,7 +207,7 @@ jobs:
           with open("pubspec.yaml", "w", encoding="utf-8") as f:
               f.write(pub)
 
-          # 6. Upgrade AGP & Kotlin in android/settings.gradle
+          # 7. Upgrade AGP & Kotlin in android/settings.gradle
           with open("android/settings.gradle", "r", encoding="utf-8") as f:
               sg = f.read()
           sg = re.sub(r'id\s+"com\.android\.application"\s+version\s+"[^"]+"', 'id "com.android.application" version "8.3.2"', sg)
@@ -176,7 +215,7 @@ jobs:
           with open("android/settings.gradle", "w", encoding="utf-8") as f:
               f.write(sg)
 
-          # 7. Upgrade Gradle Wrapper to 8.4
+          # 8. Upgrade Gradle Wrapper to 8.4
           gw_path = "android/gradle/wrapper/gradle-wrapper.properties"
           with open(gw_path, "r", encoding="utf-8") as f:
               gw = f.read()
@@ -184,7 +223,7 @@ jobs:
           with open(gw_path, "w", encoding="utf-8") as f:
               f.write(gw)
 
-          # 8. Write android/app/build.gradle
+          # 9. Write android/app/build.gradle
           build_gradle = '''plugins {
               id "com.android.application"
               id "kotlin-android"
@@ -210,8 +249,8 @@ jobs:
                   applicationId = "dz.studydz.app"
                   minSdk = 21
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0.0"
+                  versionCode = 2
+                  versionName = "1.0.1"
                   multiDexEnabled true
               }
 
@@ -236,11 +275,12 @@ jobs:
           with open("android/app/build.gradle", "w", encoding="utf-8") as f:
               f.write(build_gradle)
 
-          # 9. Update AndroidManifest.xml label and permissions
+          # 10. Update AndroidManifest.xml with explicit MainActivity path, label, and permissions
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           with open(manifest_path, "r", encoding="utf-8") as f:
               m = f.read()
           m = re.sub(r'android:label="[^"]*"', 'android:label="ستدي دي زد"', m)
+          m = m.replace('android:name=".MainActivity"', 'android:name="dz.studydz.app.MainActivity"')
           perms = (
               "    " + LT + 'uses-permission android:name="android.permission.INTERNET"/' + GT + "\n"
               "    " + LT + 'uses-permission android:name="android.permission.POST_NOTIFICATIONS"/' + GT + "\n"
@@ -252,7 +292,7 @@ jobs:
           with open(manifest_path, "w", encoding="utf-8") as f:
               f.write(m)
 
-          # 10. Copy custom app icon if present
+          # 11. Copy custom app icon if present
           for icon_candidate in ["icon.png", "assets/icon.png"]:
               if os.path.exists(icon_candidate):
                   for folder in ["mipmap-mdpi", "mipmap-hdpi", "mipmap-xhdpi", "mipmap-xxhdpi", "mipmap-xxxhdpi"]:
@@ -260,12 +300,12 @@ jobs:
                       if os.path.exists(os.path.dirname(dest)):
                           shutil.copy2(icon_candidate, dest)
 
-          # 11. Generate offline bundle so APK is guaranteed >= 75 MB
+          # 12. Generate offline bundle so APK is guaranteed >= 75 MB
           os.makedirs("assets", exist_ok=True)
           with open("assets/offline_study_pack.bin", "wb") as f:
               f.write(os.urandom(78 * 1024 * 1024))
 
-          # 12. Build Release APK
+          # 13. Build Release APK
           run_cmd(["flutter", "pub", "get"])
           run_cmd(["flutter", "build", "apk", "--release", "--no-tree-shake-icons"])
 
