@@ -1,0 +1,193 @@
+name: grab-exams-from-url
+
+on:
+  workflow_dispatch:
+    inputs:
+      page_url:
+        description: 'Paste the bacdz.net or exam table URL here'
+        required: true
+        default: 'https://bacdz.net/%D9%85%D9%88%D8%A7%D8%B6%D9%8A%D8%B9-%D9%88%D8%AD%D9%84%D9%88%D9%84-%D8%A8%D9%83%D8%A7%D9%84%D9%88%D8%B1%D9%8A%D8%A7-2008-%D8%B9%D9%84%D9%88%D9%85-%D8%AA%D8%AC%D8%B1%D9%8A%D8%A8%D9%8A%D8%A9/'
+
+permissions:
+  contents: write
+
+jobs:
+  grab-and-save:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Scraper Dependencies
+        run: pip install requests beautifulsoup4 pillow
+
+      - name: Crawl Table Links and Save PDFs into files/
+        env:
+          TARGET_URL: ${{ github.event.inputs.page_url }}
+        shell: python
+        run: |
+          import os
+          import re
+          import io
+          import urllib.parse
+          import subprocess
+          import requests
+          from bs4 import BeautifulSoup
+          from PIL import Image
+
+          os.makedirs("files", exist_ok=True)
+          url = os.environ.get("TARGET_URL", "").strip()
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+          }
+
+          print("Fetching main page:", url)
+          resp = requests.get(url, headers=headers, timeout=30)
+          soup = BeautifulSoup(resp.text, "html.parser")
+
+          page_title = soup.title.string if soup.title else urllib.parse.unquote(url)
+          print("Page Title:", page_title)
+
+          # Detect Year (2008..2026)
+          year_match = re.search(r'(200[89]|201[0-9]|202[0-6])', page_title + " " + urllib.parse.unquote(url))
+          year = year_match.group(1) if year_match else "2008"
+
+          # Detect Stream
+          stream = "se"
+          full_text_check = page_title + " " + urllib.parse.unquote(url)
+          if any(w in full_text_check for w in ["آداب", "اداب", "فلسفة"]):
+              stream = "lp"
+          elif any(w in full_text_check for w in ["لغات"]):
+              stream = "le"
+          elif any(w in full_text_check for w in ["تسيير", "اقتصاد", "إقتصاد"]):
+              stream = "ge"
+          elif any(w in full_text_check for w in ["تقني"]):
+              stream = "tm"
+          elif any(w in full_text_check for w in ["رياضيات"]) and "علوم" not in full_text_check:
+              stream = "mt"
+
+          subject_map = [
+              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية"]),
+              ("physics", ["الفيزياء", "العلوم الفيزيائية"]),
+              ("math", ["الرياضيات"]),
+              ("arabic", ["اللغة العربية", "الأدب العربي"]),
+              ("french", ["اللغة الفرنسية", "فرنسية"]),
+              ("english", ["اللغة الإنجليزية", "اللغة الانجليزية", "إنجليزية"]),
+              ("hisgeo", ["التاريخ والجغرافيا", "التاريخ و الجغرافيا"]),
+              ("islamic", ["العلوم الإسلامية", "التربية الإسلامية", "الشريعة"]),
+              ("philo", ["الفلسفة"]),
+              ("amazigh", ["اللغة الأمازيغية", "أمازيغية"]),
+              ("accounting", ["التسيير المحاسبي"]),
+              ("economy", ["الإقتصاد والمناجمنت", "الاقتصاد"]),
+              ("law", ["القانون", "القانــــون"]),
+              ("engineering", ["الهندسة", "هندسة"]),
+              ("third_lang", ["الإيطالية", "الإسبانية", "الألمانية"]),
+          ]
+
+          def detect_subject(text):
+              for code, keywords in subject_map:
+                  if any(k in text for k in keywords):
+                      return code
+              return None
+
+          def save_from_subpage(sub_url, out_filepath):
+              try:
+                  r = requests.get(sub_url, headers=headers, timeout=25)
+                  sub_soup = BeautifulSoup(r.text, "html.parser")
+
+                  # 1. Check for direct PDF link or Google Drive embed
+                  for tag in sub_soup.find_all(["a", "iframe", "embed", "object"]):
+                      link = tag.get("href") or tag.get("src") or tag.get("data") or ""
+                      if not link:
+                          continue
+                      link = urllib.parse.urljoin(sub_url, link)
+
+                      # Direct PDF
+                      if ".pdf" in link.lower() and "docs.google.com" not in link.lower():
+                          pdf_Url = link.split("?")[0] if link.lower().endswith(".pdf") else link
+                          pr = requests.get(pdf_Url, headers=headers, timeout=30)
+                          if pr.status_code == 200 and pr.content[:4] == b"%PDF":
+                              with open(out_filepath, "wb") as f:
+                                  f.write(pr.content)
+                              print("Saved direct PDF:", out_filepath)
+                              return True
+
+                      # Google Drive File ID
+                      gdrive_match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', link) or re.search(r'[?&]id=([a-zA-Z0-9_-]+)', link)
+                      if gdrive_match:
+                          fid = gdrive_match.group(1)
+                          dl_url = f"https://drive.google.com/uc?export=download&id={fid}"
+                          pr = requests.get(dl_url, headers=headers, timeout=30)
+                          if pr.status_code == 200 and pr.content[:4] == b"%PDF":
+                              with open(out_filepath, "wb") as f:
+                                  f.write(pr.content)
+                              print("Saved Google Drive PDF:", out_filepath)
+                              return True
+
+                  # 2. Fallback: If bacdz.net posted the exam as images inside the article, convert them into a single PDF
+                  content_area = sub_soup.find("div", class_=re.compile(r"entry-content|post-content|article")) or sub_soup
+                  pil_images = []
+                  for img in content_area.find_all("img"):
+                      img_url = img.get("data-src") or img.get("src") or ""
+                      if not img_url or any(skip in img_url.lower() for skip in ["logo", "avatar", "icon", "gravatar", "emoji", "banner"]):
+                          continue
+                      img_url = urllib.parse.urljoin(sub_url, img_url)
+                      try:
+                          ir = requests.get(img_url, headers=headers, timeout=20)
+                          if ir.status_code == 200:
+                              im = Image.open(io.BytesIO(ir.content)).convert("RGB")
+                              w, h = im.size
+                              if w not in range(0, 350) and h not in range(0, 350):
+                                  pil_images.append(im)
+                      except Exception:
+                          pass
+
+                  if pil_images:
+                      first_img = pil_images[0]
+                      rest_imgs = pil_images[1:]
+                      first_img.save(out_filepath, "PDF", resolution=100.0, save_all=True, append_images=rest_imgs)
+                      print("Converted exam images to PDF:", out_filepath)
+                      return True
+
+              except Exception as e:
+                  print("Error on subpage:", sub_url, e)
+              return False
+
+          saved_count = 0
+
+          # Parse all table rows on the page
+          for row in soup.find_all("tr"):
+              row_text = row.get_text(" ", strip=True)
+              subj_code = detect_subject(row_text)
+              if not subj_code:
+                  continue
+
+              for a in row.find_all("a"):
+                  href = a.get("href")
+                  if not href:
+                      continue
+                  full_href = urllib.parse.urljoin(url, href)
+                  a_text = a.get_text(strip=True)
+
+                  role = None
+                  if "موضوع" in a_text or "الموضوع" in a_text:
+                      role = "sujet"
+                  elif "تصحيح" in a_text or "التصحيح" in a_text or "حل" in a_text:
+                      role = "sol"
+
+                  if role:
+                      filename = f"bac_{year}_{subj_code}_{stream}_{role}.pdf"
+                      out_path = os.path.join("files", filename)
+                      print(f"Processing {subj_code} ({role}) -> {full_href}")
+                      if save_from_subpage(full_href, out_path):
+                          saved_count += 1
+
+          print(f"Total files saved: {saved_count}")
+
+      - name: Commit Saved PDFs to files/ Folder
+        run: |
+          git config user.name "StudyDZ-Bot"
+          git config user.email "bot@studydz.app"
+          git add files/
+          git diff --staged --quiet || git commit -m "Auto-grabbed exam PDFs into files/"
+          git push
