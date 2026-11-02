@@ -28,7 +28,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Generate All App Files and Build Lightweight APK
+      - name: Generate App Files with AdMob and Build APK
         shell: python
         run: |
           import os
@@ -36,6 +36,14 @@ jobs:
           import json
           import shutil
           import subprocess
+
+          # =====================================================================
+          # ضع أكواد حسابك في Google AdMob هنا بين علامتي التنصيص:
+          # =====================================================================
+          ADMOB_APP_ID = "ca-app-pub-3940256099942544~3347511713"
+          ADMOB_BANNER_ID = "ca-app-pub-3940256099942544/6300978111"
+          ADMOB_INTERSTITIAL_ID = "ca-app-pub-3940256099942544/1033173712"
+          # =====================================================================
 
           LT = chr(60)
           GT = chr(62)
@@ -49,6 +57,9 @@ jobs:
                   .replace("__GT__", GT)
                   .replace("__GITHUB_REPO__", repo_full_name)
                   .replace("__GITHUB_BRANCH__", repo_branch)
+                  .replace("__ADMOB_APP_ID__", ADMOB_APP_ID.strip())
+                  .replace("__ADMOB_BANNER_ID__", ADMOB_BANNER_ID.strip())
+                  .replace("__ADMOB_INTERSTITIAL_ID__", ADMOB_INTERSTITIAL_ID.strip())
               )
 
           def write_file(path, content):
@@ -76,7 +87,7 @@ jobs:
           # 3. Restore pubspec.yaml
           shutil.copy2("/tmp/study_dz_backup/pubspec.yaml", "pubspec.yaml")
 
-          # 4. Keep APK small & clean (remove any old 75MB dummy file)
+          # 4. Keep APK small & clean
           if os.path.exists("assets/offline_study_pack.bin"):
               os.remove("assets/offline_study_pack.bin")
           os.makedirs("assets", exist_ok=True)
@@ -176,16 +187,23 @@ jobs:
           """
           )
 
-          # 6. Write AndroidManifest.xml
+          # 6. Write AndroidManifest.xml with Google AdMob APPLICATION_ID meta-data
           write_file(
               "android/app/src/main/AndroidManifest.xml",
               r"""__LT__manifest xmlns:android="http://schemas.android.com/apk/res/android"__GT__
               __LT__uses-permission android:name="android.permission.INTERNET"/__GT__
+              __LT__uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/__GT__
+              __LT__uses-permission android:name="com.google.android.gms.permission.AD_ID"/__GT__
 
               __LT__application
                   android:label="ستدي دي زد"
                   android:name="${applicationName}"
                   android:icon="@mipmap/ic_launcher"__GT__
+
+                  __LT__meta-data
+                      android:name="com.google.android.gms.ads.APPLICATION_ID"
+                      android:value="__ADMOB_APP_ID__"/__GT__
+
                   __LT__activity
                       android:name="dz.studydz.app.MainActivity"
                       android:exported="true"
@@ -212,20 +230,132 @@ jobs:
           """
           )
 
-          # 7. Write lib/main.dart (ALL methods + Auto-Classifier for Trimester files AND 2008-2026 Archive Exams)
+          # 7. Write lib/main.dart (Includes AdMob Manager + Subject-only Exam Archives)
           write_file("lib/main.dart", r'''import 'dart:async';
           import 'dart:convert';
           import 'dart:io';
           import 'package:flutter/material.dart';
+          import 'package:google_mobile_ads/google_mobile_ads.dart';
 
           import 'screens/onboarding_screen.dart';
           import 'screens/home_shell.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
+            try {
+              await MobileAds.instance.initialize();
+            } catch (_) {}
             final controller = AppController();
             await controller.initialize();
+            AdHelper.loadInterstitial();
             runApp(StudyDzApp(controller: controller));
+          }
+
+          class AdHelper {
+            static const String bannerUnitId = '__ADMOB_BANNER_ID__';
+            static const String interstitialUnitId = '__ADMOB_INTERSTITIAL_ID__';
+
+            static InterstitialAd? _interstitialAd;
+            static bool _isLoadingInterstitial = false;
+
+            static void loadInterstitial() {
+              if (_isLoadingInterstitial || _interstitialAd != null) return;
+              _isLoadingInterstitial = true;
+              InterstitialAd.load(
+                adUnitId: interstitialUnitId,
+                request: const AdRequest(),
+                adLoadCallback: InterstitialAdLoadCallback(
+                  onAdLoaded: (ad) {
+                    _interstitialAd = ad;
+                    _isLoadingInterstitial = false;
+                  },
+                  onAdFailedToLoad: (_) {
+                    _interstitialAd = null;
+                    _isLoadingInterstitial = false;
+                  },
+                ),
+              );
+            }
+
+            static void showInterstitialIfReady() {
+              if (_interstitialAd != null) {
+                _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+                  onAdDismissedFullScreenContent: (ad) {
+                    ad.dispose();
+                    _interstitialAd = null;
+                    loadInterstitial();
+                  },
+                  onAdFailedToShowFullScreenContent: (ad, _) {
+                    ad.dispose();
+                    _interstitialAd = null;
+                    loadInterstitial();
+                  },
+                );
+                _interstitialAd!.show();
+                _interstitialAd = null;
+              } else {
+                loadInterstitial();
+              }
+            }
+          }
+
+          class StudyBannerAdWidget extends StatefulWidget {
+            const StudyBannerAdWidget({super.key});
+
+            @override
+            State__LT__StudyBannerAdWidget__GT__ createState() =__GT__ _StudyBannerAdWidgetState();
+          }
+
+          class _StudyBannerAdWidgetState extends State__LT__StudyBannerAdWidget__GT__ {
+            BannerAd? _bannerAd;
+            bool _isLoaded = false;
+
+            @override
+            void initState() {
+              super.initState();
+              _bannerAd = BannerAd(
+                adUnitId: AdHelper.bannerUnitId,
+                size: AdSize.banner,
+                request: const AdRequest(),
+                listener: BannerAdListener(
+                  onAdLoaded: (_) {
+                    if (mounted) {
+                      setState(() =__GT__ _isLoaded = true);
+                    }
+                  },
+                  onAdFailedToLoad: (ad, _) {
+                    ad.dispose();
+                  },
+                ),
+              )..load();
+            }
+
+            @override
+            void dispose() {
+              _bannerAd?.dispose();
+              super.dispose();
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              if (!_isLoaded || _bannerAd == null) {
+                return const SizedBox.shrink();
+              }
+              return SafeArea(
+                top: false,
+                child: Container(
+                  alignment: Alignment.center,
+                  width: double.infinity,
+                  height: _bannerAd!.size.height.toDouble(),
+                  color: Colors.transparent,
+                  child: SizedBox(
+                    width: _bannerAd!.size.width.toDouble(),
+                    height: _bannerAd!.size.height.toDouble(),
+                    child: AdWidget(ad: _bannerAd!),
+                  ),
+                ),
+              );
+            }
           }
 
           class AppScope extends InheritedNotifier__LT__AppController__GT__ {
@@ -736,7 +866,6 @@ jobs:
               return base;
             }
 
-            // Smart classifier for both regular Trimester files AND 2008-2026 Official Exam Archives (BAC, BEM, 5ème)
             Map__LT__String, dynamic__GT__? classifyFilePath(String relPath) {
               final fname = relPath.split('/').last;
               final lower = fname.toLowerCase();
@@ -754,7 +883,11 @@ jobs:
 
               final token = relPath.toLowerCase();
 
-              // Detect Year (2008 .. 2026)
+              // Ignore old solution files (_sol / _cor) if present
+              if (['_sol.', '_cor.', '_corrige.'].any((k) =__GT__ lower.contains(k))) {
+                return null;
+              }
+
               int? detectedYear;
               final yearMatch = RegExp(r'(200[89]|201[0-9]|202[0-6])').firstMatch(token);
               if (yearMatch != null) {
@@ -786,11 +919,11 @@ jobs:
 
               final subjectPatterns = __LT__String, List__LT__String__GT____GT__{
                 'math': ['math', 'رياضيات'],
-                'arabic': ['arab', '_ar_', '_ar.', 'عربي', 'عربيه', 'عربية'],
+                'arabic': ['arab', '_ar', '-ar', 'عربي', 'عربيه', 'عربية'],
                 'physics': ['phys', 'فيزياء', 'فيزيائية'],
                 'science': ['sci', 'snv', 'علوم', 'طبيعة', 'طبيعه'],
-                'french': ['fren', 'franc', '_fr_', '_fr.', 'فرنسي', 'فرنسية'],
-                'english': ['engl', '_en_', '_en.', 'انجليزي', 'إنجليزي', 'انجليزية'],
+                'french': ['fren', 'franc', '_fr', '-fr', 'فرنسي', 'فرنسية'],
+                'english': ['engl', '_en', '-en', 'انجليزي', 'إنجليزي', 'انجليزية'],
                 'hisgeo': ['his', 'geo', 'تاريخ', 'جغرافيا', 'اجتماعيات'],
                 'islamic': ['isl', 'تربية_اسلامية', 'إسلامية', 'اسلامية', 'شريعة'],
                 'civics': ['civ', 'مدنية', 'مدنيه'],
@@ -813,27 +946,21 @@ jobs:
                 }
               }
 
-              // Detect Stream for BAC archive files (LP, SE, MATH, TM, GE, LE)
               String detectedStream = 'ALL';
-              if (['_lp', '-lp', '/lp/', 'آداب', 'اداب', 'فلسفة_شعبة'].any((k) =__GT__ token.contains(k))) {
+              if (['_lp', '-lp', '/lp/', 'آداب', 'اداب'].any((k) =__GT__ token.contains(k))) {
                 detectedStream = 'LP';
-              } else if (['_se', '-se', '/se/', 'تجريبية', 'علوم_تجريبية'].any((k) =__GT__ token.contains(k))) {
+              } else if (['_se', '-se', '/se/', 'تجريبية'].any((k) =__GT__ token.contains(k))) {
                 detectedStream = 'SE';
-              } else if (['_mt', '-mt', 'smath', '/mt/', 'شعبة_رياضيات', 'تقني'].any((k) =__GT__ token.contains(k))) {
-                if (token.contains('tm') || token.contains('تقني')) {
-                  detectedStream = 'TM';
-                } else {
-                  detectedStream = 'MATH';
-                }
-              } else if (['_tm', '-tm', '/tm/', 'تقني_رياضي'].any((k) =__GT__ token.contains(k))) {
+              } else if (['_tm', '-tm', '/tm/', 'تقني'].any((k) =__GT__ token.contains(k))) {
                 detectedStream = 'TM';
-              } else if (['_ge', '-ge', '/ge/', 'تسيير_واقتصاد'].any((k) =__GT__ token.contains(k))) {
+              } else if (['_mt', '-mt', 'smath', '/mt/'].any((k) =__GT__ token.contains(k))) {
+                detectedStream = 'MATH';
+              } else if (['_ge', '-ge', '/ge/', 'تسيير'].any((k) =__GT__ token.contains(k))) {
                 detectedStream = 'GE';
-              } else if (['_le', '-le', '/le/', 'لغات_أجنبية', 'لغات_اجنبية'].any((k) =__GT__ token.contains(k))) {
+              } else if (['_le', '-le', '/le/', 'لغات'].any((k) =__GT__ token.contains(k))) {
                 detectedStream = 'LE';
               }
 
-              // Detect whether it's an Official Archive Exam (Bac / BEM / 5ème with Year 2008-2026)
               final hasArchiveKeyword = ['bac', 'bem', '5eme', 'cinquieme', 'بكالوريا', 'باك', 'بيام', 'سانكيام']
                   .any((k) =__GT__ token.contains(k));
               final isOfficialArchive = detectedYear != null || hasArchiveKeyword;
@@ -846,11 +973,6 @@ jobs:
                   detectedLevel.endsWith('AM')) {
                 archiveCycle = 'moyen';
               }
-
-              // Detect whether the file is a Solution (الحل النموذجي) or Subject (الموضوع)
-              final isSolution = ['sol', 'cor', 'corrige', 'حل', 'تصحيح', 'اجابة', 'إجابة']
-                  .any((k) =__GT__ token.contains(k));
-              final docRole = isSolution ? 'solution' : 'subject';
 
               final categoryPatterns = __LT__String, List__LT__String__GT____GT__{
                 'books': ['book', 'livre', 'manuel', 'كتاب', 'كتب'],
@@ -893,16 +1015,15 @@ jobs:
                 'archive_cycle': archiveCycle,
                 'stream': detectedStream,
                 'year': detectedYear ?? 2025,
-                'doc_role': docRole,
               };
             }
 
+            // Returns the Exam Subject files for the chosen cycle, subject, stream, and year (2008-2026)
             List__LT__Map__LT__String, dynamic__GT____GT__ getOfficialArchiveItems({
               required String cycleCode,
               required String subjectId,
               required String streamCode,
               required int year,
-              required String docRole, // 'subject' or 'solution'
             }) {
               return uploadedFiles.where((f) {
                 if (f['is_archive'] != true) return false;
@@ -910,7 +1031,6 @@ jobs:
                 if ((f['subject']?.toString() ?? '') != subjectId) return false;
                 final fYear = int.tryParse(f['year']?.toString() ?? '0') ?? 0;
                 if (fYear != year) return false;
-                if ((f['doc_role']?.toString() ?? 'subject') != docRole) return false;
                 if (cycleCode == 'secondaire') {
                   final fStream = (f['stream']?.toString() ?? 'ALL').toUpperCase();
                   if (fStream != 'ALL' && fStream != streamCode.toUpperCase()) {
@@ -948,28 +1068,6 @@ jobs:
                         if (item != null) {
                           discovered.add(item);
                         }
-                      }
-                    }
-                  }
-                }
-              } catch (_) {}
-
-              try {
-                final client = HttpClient();
-                final extUri = Uri.parse(
-                  'https://raw.githubusercontent.com/$githubRepo/$githubBranch/files/external_links.json',
-                );
-                final req = await client.getUrl(extUri);
-                final resp = await req.close().timeout(const Duration(seconds: 10));
-                if (resp.statusCode == 200) {
-                  final body = await resp.transform(utf8.decoder).join();
-                  final extList = jsonDecode(body);
-                  if (extList is List) {
-                    for (final entry in extList) {
-                      if (entry is Map) {
-                        final m = Map__LT__String, dynamic__GT__.from(entry);
-                        m['path'] = m['path'] ?? 'external_${m['title']}.pdf';
-                        discovered.add(m);
                       }
                     }
                   }
@@ -1142,12 +1240,12 @@ jobs:
                       await dir.create(recursive: true);
                     }
                     _appDataDirPath = dir.path;
-                    return File('${dir.path}/study_dz_v5_state.json');
+                    return File('${dir.path}/study_dz_v6_state.json');
                   }
                 }
               } catch (_) {}
               _appDataDirPath = Directory.systemTemp.path;
-              return File('${Directory.systemTemp.path}/study_dz_v5_state.json');
+              return File('${Directory.systemTemp.path}/study_dz_v6_state.json');
             }
 
             Future__LT__void__GT__ initialize() async {
@@ -1187,390 +1285,7 @@ jobs:
           }
           ''')
 
-          # 8. Write lib/screens/onboarding_screen.dart
-          write_file("lib/screens/onboarding_screen.dart", r'''import 'package:flutter/material.dart';
-          import '../main.dart';
-
-          class OnboardingScreen extends StatefulWidget {
-            const OnboardingScreen({super.key});
-
-            @override
-            State__LT__OnboardingScreen__GT__ createState() =__GT__ _OnboardingScreenState();
-          }
-
-          class _OnboardingScreenState extends State__LT__OnboardingScreen__GT__ {
-            final _nameCtrl = TextEditingController(text: 'الوليد');
-            String _selectedGender = 'male';
-            String _selectedLevel = '3AS';
-            String _selectedStream = 'SE';
-
-            @override
-            void dispose() {
-              _nameCtrl.dispose();
-              super.dispose();
-            }
-
-            void _finishSetup(AppController ctrl, {bool googleSignIn = false, String? googleEmail, String? googleName}) {
-              final finalName = (googleName != null && googleName.trim().isNotEmpty)
-                  ? googleName.trim()
-                  : (_nameCtrl.text.trim().isEmpty ? 'الوليد' : _nameCtrl.text.trim());
-
-              ctrl.isGoogleSignedIn = googleSignIn;
-              ctrl.isGuest = !googleSignIn;
-              if (googleSignIn) {
-                ctrl.accountName = finalName;
-                ctrl.accountEmail = googleEmail ?? 'student.dz@gmail.com';
-              }
-
-              final profile = StudentProfile(
-                id: 'p_${DateTime.now().millisecondsSinceEpoch}',
-                name: finalName,
-                gender: _selectedGender,
-                levelCode: _selectedLevel,
-                streamCode: _selectedStream,
-              );
-
-              ctrl.profiles = [profile];
-              ctrl.activeProfileIndex = 0;
-              ctrl.hasCompletedOnboarding = true;
-              ctrl.saveState();
-            }
-
-            void _promptGoogleSignIn(BuildContext context, AppController ctrl) {
-              final gNameCtrl = TextEditingController(text: _nameCtrl.text);
-              final gEmailCtrl = TextEditingController(text: 'walid.studydz@gmail.com');
-
-              showDialog(
-                context: context,
-                builder: (ctx) =__GT__ AlertDialog(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  title: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Text('G', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.red, fontSize: 20)),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          ctrl.tr('تسجيل الدخول بحساب Google', 'Connexion avec Google', 'Sign in with Google'),
-                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: gNameCtrl,
-                        decoration: InputDecoration(
-                          labelText: ctrl.tr('الاسم الكامل', 'Nom complet', 'Full Name'),
-                          prefixIcon: const Icon(Icons.person_outline),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: gEmailCtrl,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: InputDecoration(
-                          labelText: ctrl.tr('بريد Gmail الإلكتروني', 'Adresse Gmail', 'Gmail Address'),
-                          prefixIcon: const Icon(Icons.email_outlined),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () =__GT__ Navigator.pop(ctx),
-                      child: Text(ctrl.tr('إلغاء', 'Annuler', 'Cancel')),
-                    ),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF147A42)),
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _finishSetup(
-                          ctrl,
-                          googleSignIn: true,
-                          googleName: gNameCtrl.text,
-                          googleEmail: gEmailCtrl.text,
-                        );
-                      },
-                      icon: const Icon(Icons.check),
-                      label: Text(ctrl.tr('متابعة بحساب Google', 'Continuer', 'Continue')),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final is1AS = _selectedLevel == '1AS';
-              final is2AS3AS = _selectedLevel == '2AS' || _selectedLevel == '3AS';
-              final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
-              if ((is1AS || is2AS3AS) && !streams.any((s) =__GT__ s['code'] == _selectedStream)) {
-                _selectedStream = streams.first['code']!;
-              }
-
-              return Scaffold(
-                body: Container(
-                  width: double.infinity,
-                  height: double.infinity,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF0D5E31), Color(0xFF147A42), Color(0xFF1B9452)],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                  ),
-                  child: SafeArea(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              SegmentedButton__LT__String__GT__(
-                                style: ButtonStyle(
-                                  backgroundColor: WidgetStateProperty.resolveWith((states) {
-                                    if (states.contains(WidgetState.selected)) {
-                                      return const Color(0xFFF5B800);
-                                    }
-                                    return Colors.white.withOpacity(0.15);
-                                  }),
-                                  foregroundColor: WidgetStateProperty.resolveWith((states) {
-                                    if (states.contains(WidgetState.selected)) {
-                                      return Colors.black87;
-                                    }
-                                    return Colors.white;
-                                  }),
-                                ),
-                                segments: const [
-                                  ButtonSegment(value: 'ar', label: Text('عربي')),
-                                  ButtonSegment(value: 'fr', label: Text('FR')),
-                                  ButtonSegment(value: 'en', label: Text('EN')),
-                                ],
-                                selected: {ctrl.languageCode},
-                                onSelectionChanged: (s) {
-                                  ctrl.languageCode = s.first;
-                                  ctrl.saveState();
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          RichText(
-                            text: const TextSpan(
-                              style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
-                              children: [
-                                TextSpan(text: 'Study ', style: TextStyle(color: Colors.white)),
-                                TextSpan(text: 'DZ', style: TextStyle(color: Color(0xFFF5B800))),
-                                TextSpan(text: ' • ستدي دي زد', style: TextStyle(color: Colors.white)),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            ctrl.tr(
-                              'بوابتك التعليمية الشاملة للابتدائي والمتوسط والثانوي في الجزائر',
-                              'Votre portail éducatif complet en Algérie',
-                              'Your complete educational portal in Algeria',
-                            ),
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontSize: 14.5),
-                          ),
-                          const SizedBox(height: 22),
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                TextField(
-                                  controller: _nameCtrl,
-                                  style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
-                                  decoration: InputDecoration(
-                                    labelText: ctrl.tr('اسم التلميذ(ة)', 'Prénom', 'Student Name'),
-                                    prefixIcon: const Icon(Icons.person_outline, color: Color(0xFF147A42)),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  ctrl.tr('اختر الجنس:', 'Choisissez le sexe :', 'Select Gender:'),
-                                  style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.black87),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(14),
-                                        onTap: () =__GT__ setState(() =__GT__ _selectedGender = 'male'),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                          decoration: BoxDecoration(
-                                            color: _selectedGender == 'male'
-                                                ? const Color(0xFFE8F5E9)
-                                                : Colors.grey.shade100,
-                                            borderRadius: BorderRadius.circular(14),
-                                            border: Border.all(
-                                              color: _selectedGender == 'male'
-                                                  ? const Color(0xFF147A42)
-                                                  : Colors.grey.shade300,
-                                              width: 2,
-                                            ),
-                                          ),
-                                          child: Column(
-                                            children: [
-                                              const Text('👦🏻', style: TextStyle(fontSize: 30)),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                ctrl.tr('ذكر', 'Garçon', 'Male'),
-                                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(14),
-                                        onTap: () =__GT__ setState(() =__GT__ _selectedGender = 'female'),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                          decoration: BoxDecoration(
-                                            color: _selectedGender == 'female'
-                                                ? const Color(0xFFFCE4EC)
-                                                : Colors.grey.shade100,
-                                            borderRadius: BorderRadius.circular(14),
-                                            border: Border.all(
-                                              color: _selectedGender == 'female'
-                                                  ? Colors.pink.shade400
-                                                  : Colors.grey.shade300,
-                                              width: 2,
-                                            ),
-                                          ),
-                                          child: Column(
-                                            children: [
-                                              const Text('👧🏻', style: TextStyle(fontSize: 30)),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                ctrl.tr('أنثى', 'Fille', 'Female'),
-                                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                DropdownButtonFormField__LT__String__GT__(
-                                  value: _selectedLevel,
-                                  decoration: InputDecoration(
-                                    labelText: ctrl.tr('السنة الدراسية', 'Niveau scolaire', 'Grade Level'),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                  items: AppController.allLevels
-                                      .map((lvl) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                            value: lvl['code']!,
-                                            child: Text(ctrl.tr(lvl['ar']!, lvl['fr']!, lvl['en'])),
-                                          ))
-                                      .toList(),
-                                  onChanged: (val) {
-                                    if (val != null) setState(() =__GT__ _selectedLevel = val);
-                                  },
-                                ),
-                                if (is1AS || is2AS3AS) ...[
-                                  const SizedBox(height: 12),
-                                  DropdownButtonFormField__LT__String__GT__(
-                                    value: _selectedStream,
-                                    decoration: InputDecoration(
-                                      labelText: ctrl.tr('الشعبة', 'Filière', 'Stream'),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                    ),
-                                    items: streams
-                                        .map((s) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                              value: s['code']!,
-                                              child: Text(ctrl.tr(s['ar']!, s['fr']!, s['en'])),
-                                            ))
-                                        .toList(),
-                                    onChanged: (val) {
-                                      if (val != null) setState(() =__GT__ _selectedStream = val);
-                                    },
-                                  ),
-                                ],
-                                const SizedBox(height: 20),
-                                FilledButton.icon(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF147A42),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 15),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                  onPressed: () =__GT__ _finishSetup(ctrl, googleSignIn: false),
-                                  icon: const Icon(Icons.arrow_forward),
-                                  label: Text(
-                                    ctrl.tr('الدخول المباشر إلى التطبيق', 'Accéder à Study DZ', 'Continue to App'),
-                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.black87,
-                                    side: BorderSide(color: Colors.grey.shade400, width: 1.5),
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                  onPressed: () =__GT__ _promptGoogleSignIn(context, ctrl),
-                                  icon: const Text(
-                                    'G',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w900,
-                                      color: Colors.red,
-                                    ),
-                                  ),
-                                  label: Text(
-                                    ctrl.tr(
-                                      'تسجيل الدخول باستخدام Google',
-                                      'Se connecter avec Google',
-                                      'Sign in with Google',
-                                    ),
-                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }
-          }
-          ''')
-
-          # 9. Write lib/screens/home_shell.dart
+          # 8. Write lib/screens/home_shell.dart (with Banner Ad at the bottom)
           write_file("lib/screens/home_shell.dart", r'''import 'package:flutter/material.dart';
           import '../main.dart';
           import 'subjects_screen.dart';
@@ -1597,6 +1312,7 @@ jobs:
                 key: _scaffoldKey,
                 drawer: const AppDrawerMenu(),
                 endDrawer: const AppDrawerMenu(),
+                bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: PreferredSize(
                   preferredSize: const Size.fromHeight(60),
                   child: Directionality(
@@ -1640,7 +1356,6 @@ jobs:
                 body: ListView(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
                   children: [
-                    // Green Welcome Header Banner
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
                       decoration: BoxDecoration(
@@ -1729,7 +1444,6 @@ jobs:
                     ),
                     const SizedBox(height: 22),
 
-                    // Card 1: التعليم الابتدائي
                     _MainCategoryCard(
                       title: ctrl.tr('التعليم الابتدائي', 'Enseignement Primaire', 'Primary School'),
                       subtitle: ctrl.tr('تصفح المستويات', 'Parcourir les niveaux', 'Browse Levels'),
@@ -1750,7 +1464,6 @@ jobs:
                     ),
                     const SizedBox(height: 16),
 
-                    // Card 2: التعليم المتوسط
                     _MainCategoryCard(
                       title: ctrl.tr('التعليم المتوسط', 'Enseignement Moyen (CEM)', 'Middle School (CEM)'),
                       subtitle: ctrl.tr('تصفح المستويات', 'Parcourir les niveaux', 'Browse Levels'),
@@ -1771,7 +1484,6 @@ jobs:
                     ),
                     const SizedBox(height: 16),
 
-                    // Card 3: التعليم الثانوي
                     _MainCategoryCard(
                       title: ctrl.tr('التعليم الثانوي', 'Enseignement Secondaire', 'High School (BAC)'),
                       subtitle: ctrl.tr('تصفح المستويات', 'Parcourir les niveaux', 'Browse Levels'),
@@ -1792,7 +1504,6 @@ jobs:
                     ),
                     const SizedBox(height: 16),
 
-                    // Card 4: حاسبة المعدل with Calculator Icon
                     _MainCategoryCard(
                       title: ctrl.tr('حاسبة المعدل', 'Calculateur de Moyenne', 'Average Calculator'),
                       subtitle: ctrl.tr('احسب معدلك', 'Calculez votre moyenne', 'Calculate your GPA'),
@@ -1812,6 +1523,7 @@ jobs:
                         ),
                       ),
                       onTap: () {
+                        AdHelper.showInterstitialIfReady();
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) =__GT__ const ToolsScreen()),
@@ -2156,7 +1868,7 @@ jobs:
           }
           ''')
 
-          # 10. Write lib/screens/subjects_screen.dart (With Official Exam Archives 2008-2026 under Primaire, Moyen, and Secondaire!)
+          # 9. Write lib/screens/subjects_screen.dart (ONLY Subject in BAC/BEM/5ème Archives - NO Solution Tab + Banner Ad)
           write_file("lib/screens/subjects_screen.dart", r'''import 'dart:io';
           import 'dart:typed_data';
           import 'package:flutter/material.dart';
@@ -2177,7 +1889,6 @@ jobs:
             }
           }
 
-          // Shows Levels for the cycle + the Special Official Exams Archive Card underneath!
           class CycleLevelsPage extends StatelessWidget {
             final String cycleCode;
             final String titleAr;
@@ -2207,17 +1918,18 @@ jobs:
 
               final archiveSubtitle = cycleCode == 'secondaire'
                   ? ctrl.tr(
-                      'جميع المواد والشعب من سنة 2008 إلى 2026 مع الحلول النموذجية',
-                      'Toutes les matières et filières de 2008 à 2026 avec corrigés',
-                      'All subjects & streams from 2008 to 2026 with solutions',
+                      'جميع المواد والشعب من سنة 2008 إلى 2026',
+                      'Toutes les matières et filières de 2008 à 2026',
+                      'All subjects & streams from 2008 to 2026',
                     )
                   : ctrl.tr(
-                      'جميع المواد من سنة 2008 إلى 2026 مرفقة بالحلول النموذجية',
-                      'Toutes les matières de 2008 à 2026 avec corrigés',
-                      'All subjects from 2008 to 2026 with solutions',
+                      'جميع المواد من سنة 2008 إلى 2026',
+                      'Toutes les matières de 2008 à 2026',
+                      'All subjects from 2008 to 2026',
                     );
 
               return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: AppBar(
                   title: Text(ctrl.tr(titleAr, titleFr, titleEn)),
                 ),
@@ -2299,7 +2011,6 @@ jobs:
                         ),
                       ),
 
-                    // Special Official Archive Card underneath the levels (مواضيع البكالوريا / مواضيع البيام / مواضيع السانكيام)
                     const SizedBox(height: 4),
                     InkWell(
                       borderRadius: BorderRadius.circular(22),
@@ -2384,7 +2095,6 @@ jobs:
             }
           }
 
-          // ARCHIVE STEP 1: Choose Subject (math, arabic, physics, etc.)
           class OfficialExamSubjectsPage extends StatelessWidget {
             final String cycleCode;
             final String archiveTitle;
@@ -2401,6 +2111,7 @@ jobs:
               final subjectIds = ctrl.getArchiveSubjectsForCycle(cycleCode);
 
               return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: AppBar(
                   title: Text(archiveTitle),
                 ),
@@ -2419,7 +2130,6 @@ jobs:
                       borderRadius: BorderRadius.circular(20),
                       onTap: () {
                         if (cycleCode == 'secondaire') {
-                          // Secondary has Streams (الشعب) before Years
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -2430,7 +2140,6 @@ jobs:
                             ),
                           );
                         } else {
-                          // Middle School (BEM) & Elementary (5ème) go directly to Years 2008-2026 without Streams
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -2438,7 +2147,7 @@ jobs:
                                 cycleCode: cycleCode,
                                 subjectId: subjId,
                                 streamCode: 'ALL',
-                                headerTitle: '${archiveTitle} - ${ctrl.subjectTitle(subjId)}',
+                                headerTitle: '$archiveTitle - ${ctrl.subjectTitle(subjId)}',
                               ),
                             ),
                           );
@@ -2478,7 +2187,6 @@ jobs:
             }
           }
 
-          // ARCHIVE STEP 2 (For Secondary / BAC only): Choose Stream (الشعب)
           class OfficialExamStreamsPage extends StatelessWidget {
             final String cycleCode;
             final String subjectId;
@@ -2495,6 +2203,7 @@ jobs:
               final streams = AppController.streams2AS3AS;
 
               return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: AppBar(
                   title: Text('مواضيع البكالوريا - ${ctrl.subjectTitle(subjectId)}'),
                 ),
@@ -2574,7 +2283,6 @@ jobs:
             }
           }
 
-          // ARCHIVE STEP 3: Years List from 2008 to 2026 (e.g. شهادة البكالوريا 2025)
           class OfficialExamYearsPage extends StatelessWidget {
             final String cycleCode;
             final String subjectId;
@@ -2592,7 +2300,6 @@ jobs:
             @override
             Widget build(BuildContext context) {
               final ctrl = AppScope.of(context);
-              // Generate years from 2026 down to 2008 (19 years)
               final years = List__LT__int__GT__.generate(19, (i) =__GT__ 2026 - i);
 
               String yearLabelFor(int year) {
@@ -2606,6 +2313,7 @@ jobs:
               }
 
               return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: AppBar(
                   title: Text(headerTitle),
                 ),
@@ -2644,7 +2352,7 @@ jobs:
                             style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5),
                           ),
                           subtitle: Text(
-                            '${ctrl.subjectTitle(subjectId)} • الموضوع + الحل النموذجي',
+                            '${ctrl.subjectTitle(subjectId)} • موضوع الامتحان الرسمي',
                             style: const TextStyle(fontSize: 12.5),
                           ),
                           trailing: const CircleAvatar(
@@ -2653,6 +2361,7 @@ jobs:
                             child: Icon(Icons.arrow_forward_ios, color: Colors.white, size: 14),
                           ),
                           onTap: () {
+                            AdHelper.showInterstitialIfReady();
                             Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -2675,8 +2384,8 @@ jobs:
             }
           }
 
-          // ARCHIVE STEP 4: Inside a specific Year (2008..2026) -> Shows Subject (الموضوع) + Solution (الحل النموذجي)
-          class OfficialExamYearDetailPage extends StatefulWidget {
+          // Shows ONLY the Exam Subject (الموضوع فقط) for that Year — No Solution Tab!
+          class OfficialExamYearDetailPage extends StatelessWidget {
             final String cycleCode;
             final String subjectId;
             final String streamCode;
@@ -2693,37 +2402,29 @@ jobs:
             });
 
             @override
-            State__LT__OfficialExamYearDetailPage__GT__ createState() =__GT__ _OfficialExamYearDetailPageState();
-          }
-
-          class _OfficialExamYearDetailPageState extends State__LT__OfficialExamYearDetailPage__GT__ {
-            String _selectedRole = 'subject'; // 'subject' = الموضوع, 'solution' = الحل النموذجي
-
-            @override
             Widget build(BuildContext context) {
               final ctrl = AppScope.of(context);
               final items = ctrl.getOfficialArchiveItems(
-                cycleCode: widget.cycleCode,
-                subjectId: widget.subjectId,
-                streamCode: widget.streamCode,
-                year: widget.year,
-                docRole: _selectedRole,
+                cycleCode: cycleCode,
+                subjectId: subjectId,
+                streamCode: streamCode,
+                year: year,
               );
 
-              final prefixCode = widget.cycleCode == 'secondaire'
+              final prefixCode = cycleCode == 'secondaire'
                   ? 'bac'
-                  : widget.cycleCode == 'moyen'
+                  : cycleCode == 'moyen'
                       ? 'bem'
                       : '5eme';
-              final streamPart = widget.cycleCode == 'secondaire'
-                  ? '_${widget.streamCode.toLowerCase()}'
+              final streamPart = cycleCode == 'secondaire'
+                  ? '_${streamCode.toLowerCase()}'
                   : '';
-              final rolePart = _selectedRole == 'solution' ? 'sol' : 'sujet';
-              final sampleFileName = '${prefixCode}_${widget.year}_${widget.subjectId}${streamPart}_$rolePart.pdf';
+              final sampleFileName = '${prefixCode}_${year}_$subjectId$streamPart.pdf';
 
               return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: AppBar(
-                  title: Text('${widget.yearTitle} - ${ctrl.subjectTitle(widget.subjectId)}'),
+                  title: Text('$yearTitle - ${ctrl.subjectTitle(subjectId)}'),
                   actions: [
                     IconButton(
                       icon: ctrl.isSyncingCloud
@@ -2744,151 +2445,87 @@ jobs:
                     ),
                   ],
                 ),
-                body: Column(
-                  children: [
-                    // Two Tabs: الموضوع (Subject) | الحل النموذجي (Solution)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      color: const Color(0xFF147A42).withOpacity(0.08),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () =__GT__ setState(() =__GT__ _selectedRole = 'subject'),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                decoration: BoxDecoration(
-                                  color: _selectedRole == 'subject' ? const Color(0xFF147A42) : Colors.white,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: const Color(0xFF147A42)),
-                                ),
-                                child: Text(
-                                  ctrl.tr('📄 الموضوع (Sujet)', '📄 Sujet', '📄 Exam Subject'),
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    color: _selectedRole == 'subject' ? Colors.white : const Color(0xFF147A42),
-                                  ),
-                                ),
+                body: items.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(26),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.description_outlined,
+                                size: 64,
+                                color: Color(0xFF147A42),
                               ),
-                            ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'موضوع $yearTitle (${ctrl.subjectTitle(subjectId)})',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'لإضافة هذا الموضوع، ارفع ملف الـ PDF أو الصورة داخل مجلد files/ على GitHub باسم:\n'
+                                '$sampleFileName\n'
+                                'ثم اضغط على زر التحديث (🔄) في الأعلى ليظهر فوراً!',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 13.5, color: Colors.grey, height: 1.5),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () =__GT__ setState(() =__GT__ _selectedRole = 'solution'),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                decoration: BoxDecoration(
-                                  color: _selectedRole == 'solution' ? const Color(0xFF147A42) : Colors.white,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: const Color(0xFF147A42)),
-                                ),
-                                child: Text(
-                                  ctrl.tr('✅ الحل النموذجي (Corrigé)', '✅ Corrigé Type', '✅ Official Solution'),
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    color: _selectedRole == 'solution' ? Colors.white : const Color(0xFF147A42),
-                                  ),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: items.length,
+                        itemBuilder: (context, idx) {
+                          final fileItem = items[idx];
+                          final isPdf = fileItem['type'] == 'pdf';
+                          final isCached = ctrl.isFileCachedLocally(fileItem);
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.all(14),
+                              leading: CircleAvatar(
+                                radius: 24,
+                                backgroundColor: const Color(0xFF147A42).withOpacity(0.14),
+                                child: Icon(
+                                  isPdf ? Icons.picture_as_pdf : Icons.image,
+                                  color: const Color(0xFF147A42),
+                                  size: 26,
                                 ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    Expanded(
-                      child: items.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(26),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.cloud_upload_outlined,
-                                      size: 62,
-                                      color: Color(0xFF147A42),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      _selectedRole == 'subject'
-                                          ? 'لم يتم رفع ملف الموضوع لسنة ${widget.year} بعد'
-                                          : 'لم يتم رفع ملف الحل النموذجي لسنة ${widget.year} بعد',
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'لإضافة هذا الملف تلقائياً، ارفع ملف الـ PDF أو الصورة داخل مجلد files/ على GitHub باسم:\n'
-                                      '$sampleFileName\n'
-                                      'ثم اضغط على زر التحديث (🔄) في الأعلى ليظهر فوراً!',
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
-                                    ),
-                                  ],
+                              title: Text(
+                                '📄 موضوع $yearTitle - ${ctrl.subjectTitle(subjectId)}',
+                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                              ),
+                              subtitle: Text(
+                                isCached
+                                    ? '✅ محفوظ في الهاتف (يعمل بدون إنترنت)'
+                                    : '☁️ اضغط لفتح وتحميل الموضوع',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: isCached ? const Color(0xFF147A42) : Colors.orange.shade800,
                                 ),
                               ),
-                            )
-                          : ListView.builder(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: items.length,
-                              itemBuilder: (context, idx) {
-                                final fileItem = items[idx];
-                                final isPdf = fileItem['type'] == 'pdf';
-                                final isCached = ctrl.isFileCachedLocally(fileItem);
-
-                                return Card(
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  child: ListTile(
-                                    contentPadding: const EdgeInsets.all(14),
-                                    leading: CircleAvatar(
-                                      radius: 24,
-                                      backgroundColor: const Color(0xFF147A42).withOpacity(0.14),
-                                      child: Icon(
-                                        isPdf ? Icons.picture_as_pdf : Icons.image,
-                                        color: const Color(0xFF147A42),
-                                        size: 26,
-                                      ),
-                                    ),
-                                    title: Text(
-                                      fileItem['title']?.toString() ?? '',
-                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-                                    ),
-                                    subtitle: Text(
-                                      isCached
-                                          ? '✅ محفوظ في الهاتف (يعمل بدون إنترنت)'
-                                          : '☁️ سحابي • اضغط للتحميل والمطالعة',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: isCached ? const Color(0xFF147A42) : Colors.orange.shade800,
-                                      ),
-                                    ),
-                                    trailing: const CircleAvatar(
-                                      radius: 16,
-                                      backgroundColor: Color(0xFF147A42),
-                                      child: Icon(Icons.arrow_forward_ios, color: Colors.white, size: 14),
-                                    ),
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =__GT__ FileViewerPage(fileItem: fileItem),
-                                        ),
-                                      );
-                                    },
+                              trailing: const CircleAvatar(
+                                radius: 16,
+                                backgroundColor: Color(0xFF147A42),
+                                child: Icon(Icons.arrow_forward_ios, color: Colors.white, size: 14),
+                              ),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =__GT__ FileViewerPage(fileItem: fileItem),
                                   ),
                                 );
                               },
                             ),
-                    ),
-                  ],
-                ),
+                          );
+                        },
+                      ),
               );
             }
           }
@@ -2927,6 +2564,7 @@ jobs:
               final subjectIds = coeffsMap.keys.toList();
 
               return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: AppBar(
                   title: Text(ctrl.levelLabel(widget.levelCode)),
                 ),
@@ -3087,6 +2725,7 @@ jobs:
                               : 'book';
 
               return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: AppBar(
                   title: Text('${ctrl.subjectTitle(widget.subjectId)} (${widget.levelCode})'),
                   actions: [
@@ -3270,6 +2909,7 @@ jobs:
                                             child: Icon(Icons.download, color: Colors.white, size: 16),
                                           ),
                                     onTap: () {
+                                      AdHelper.showInterstitialIfReady();
                                       Navigator.push(
                                         context,
                                         MaterialPageRoute(
@@ -3541,1166 +3181,18 @@ jobs:
           }
           ''')
 
-          # 11. Write lib/screens/practice_screen.dart
-          write_file("lib/screens/practice_screen.dart", r'''import 'package:flutter/material.dart';
-
-          class PracticeScreen extends StatelessWidget {
-            const PracticeScreen({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              return const SizedBox.shrink();
-            }
-          }
-          ''')
-
-          # 12. Write lib/screens/tools_screen.dart (Eddirasa.com Average Calculator)
-          write_file("lib/screens/tools_screen.dart", r'''import 'package:flutter/material.dart';
-          import '../main.dart';
-
-          class ToolsScreen extends StatefulWidget {
-            const ToolsScreen({super.key});
-
-            @override
-            State__LT__ToolsScreen__GT__ createState() =__GT__ _ToolsScreenState();
-          }
-
-          class _ToolsScreenState extends State__LT__ToolsScreen__GT__ {
-            String? _calcLevel;
-            String? _calcStream;
-            bool _isOfficialExamMode = false;
-            bool _includeSport = true;
-            bool _includeAmazigh = false;
-            bool _includeArt = false;
-
-            final Map__LT__String, double__GT__ _taqwimMarks = {};
-            final Map__LT__String, double__GT__ _devoirMarks = {};
-            final Map__LT__String, double__GT__ _examMarks = {};
-
-            int _resetVersion = 0;
-
-            double _getTaqwim(String key, double defaultVal) =__GT__ _taqwimMarks[key] ?? defaultVal;
-            double _getDevoir(String key, double defaultVal) =__GT__ _devoirMarks[key] ?? defaultVal;
-            double _getExam(String key, double defaultVal) =__GT__ _examMarks[key] ?? defaultVal;
-
-            double _subjectAverage({
-              required String key,
-              required bool isPrimary,
-              required bool isExamCertificateMode,
-            }) {
-              if (isPrimary) {
-                return _getExam(key, 8.0).clamp(0.0, 10.0);
-              }
-              if (isExamCertificateMode) {
-                return _getExam(key, 12.0).clamp(0.0, 20.0);
-              }
-              final t = _getTaqwim(key, 14.0).clamp(0.0, 20.0);
-              final d = _getDevoir(key, 13.0).clamp(0.0, 20.0);
-              final ex = _getExam(key, 13.0).clamp(0.0, 20.0);
-              return (((t + d) / 2.0) + (ex * 2.0)) / 3.0;
-            }
-
-            String _mentionLabel(double avg, bool isPrimary, AppController ctrl) {
-              final normalized20 = isPrimary ? avg * 2.0 : avg;
-              if (normalized20 __GT__= 16) {
-                return ctrl.tr('التقدير: جيد جداً 🌟 (Très Bien)', 'Mention : Très Bien 🌟', 'Mention: Very Good 🌟');
-              }
-              if (normalized20 __GT__= 14) {
-                return ctrl.tr('التقدير: جيد 👏 (Bien)', 'Mention : Bien 👏', 'Mention: Good 👏');
-              }
-              if (normalized20 __GT__= 12) {
-                return ctrl.tr('التقدير: قريب من الجيد (Assez Bien)', 'Mention : Assez Bien', 'Mention: Fairly Good');
-              }
-              if (normalized20 __GT__= 10) {
-                return ctrl.tr('التقدير: مقبول ✅ (Passable)', 'Mention : Passable ✅', 'Mention: Pass ✅');
-              }
-              return ctrl.tr('دون المعدل — واصل الاجتهاد 💪', 'Sous la moyenne 💪', 'Below Average 💪');
-            }
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final activeLevel = _calcLevel ?? ctrl.currentProfile.levelCode;
-              final isPrimary = activeLevel.endsWith('AP');
-              final is1AS = activeLevel == '1AS';
-              final is2AS3AS = activeLevel == '2AS' || activeLevel == '3AS';
-              final canHaveOfficialExamMode = activeLevel == '4AM' || activeLevel == '3AS';
-              final effectiveExamMode = canHaveOfficialExamMode && _isOfficialExamMode;
-
-              final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
-              String activeStream = _calcStream ?? ctrl.currentProfile.streamCode;
-              if ((is1AS || is2AS3AS) && !streams.any((s) =__GT__ s['code'] == activeStream)) {
-                activeStream = streams.first['code']!;
-              }
-
-              final coeffsMap = ctrl.getCoefficientsForLevel(
-                activeLevel,
-                activeStream,
-                includeSport: _includeSport,
-                includeAmazigh: _includeAmazigh,
-                includeArt: _includeArt,
-              );
-
-              if (effectiveExamMode && activeLevel == '4AM') {
-                coeffsMap.remove('cs');
-              }
-
-              final subjectIds = coeffsMap.keys.toList();
-
-              int totalCoeffs = 0;
-              double totalPoints = 0.0;
-
-              for (final subjId in subjectIds) {
-                final key = '${activeLevel}_${activeStream}_${effectiveExamMode}_$subjId';
-                final sAvg = _subjectAverage(
-                  key: key,
-                  isPrimary: isPrimary,
-                  isExamCertificateMode: effectiveExamMode,
-                );
-                final c = coeffsMap[subjId] ?? 1;
-
-                if (effectiveExamMode && activeLevel == '4AM' && subjId == 'art') {
-                  if (sAvg __GT__ 10.0) {
-                    totalPoints += (sAvg - 10.0);
-                  }
-                } else {
-                  totalCoeffs += c;
-                  totalPoints += sAvg * c;
-                }
-              }
-
-              final finalAverage = totalCoeffs == 0 ? 0.0 : totalPoints / totalCoeffs;
-              final maxScale = isPrimary ? 10 : 20;
-
-              return Scaffold(
-                appBar: AppBar(
-                  title: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.calculate_rounded, color: Color(0xFFF5B800), size: 26),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          ctrl.tr('حاسبة المعدل الدراسي', 'Calculateur de Moyenne', 'Average Calculator'),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                body: ListView(
-                  padding: const EdgeInsets.all(14),
-                  children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: AppController.allLevels.map((lvl) {
-                                  final code = lvl['code']!;
-                                  final selected = code == activeLevel;
-                                  return Padding(
-                                    padding: const EdgeInsets.only(left: 6, right: 2),
-                                    child: ChoiceChip(
-                                      label: Text(
-                                        code,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          color: selected ? Colors.white : const Color(0xFF147A42),
-                                        ),
-                                      ),
-                                      selected: selected,
-                                      selectedColor: const Color(0xFF147A42),
-                                      onSelected: (_) {
-                                        setState(() {
-                                          _calcLevel = code;
-                                          _isOfficialExamMode = false;
-                                          if (code == '1AS') {
-                                            _calcStream = 'TC_ST';
-                                          } else if (code == '2AS' || code == '3AS') {
-                                            _calcStream = 'SE';
-                                          } else {
-                                            _calcStream = '';
-                                          }
-                                        });
-                                      },
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            DropdownButtonFormField__LT__String__GT__(
-                              value: activeLevel,
-                              decoration: InputDecoration(
-                                labelText: ctrl.tr('السنة الدراسية', 'Niveau scolaire', 'Grade Level'),
-                                prefixIcon: const Icon(Icons.school, color: Color(0xFF147A42)),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              ),
-                              items: AppController.allLevels
-                                  .map((lvl) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                        value: lvl['code']!,
-                                        child: Text(ctrl.tr(lvl['ar']!, lvl['fr']!, lvl['en'])),
-                                      ))
-                                  .toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setState(() {
-                                    _calcLevel = val;
-                                    _isOfficialExamMode = false;
-                                    if (val == '1AS') {
-                                      _calcStream = 'TC_ST';
-                                    } else if (val == '2AS' || val == '3AS') {
-                                      _calcStream = 'SE';
-                                    } else {
-                                      _calcStream = '';
-                                    }
-                                  });
-                                }
-                              },
-                            ),
-                            if (is1AS || is2AS3AS) ...[
-                              const SizedBox(height: 10),
-                              DropdownButtonFormField__LT__String__GT__(
-                                value: activeStream,
-                                decoration: InputDecoration(
-                                  labelText: ctrl.tr('الشعبة / الجذع المشترك', 'Filière', 'Stream'),
-                                  prefixIcon: const Icon(Icons.account_tree_outlined, color: Color(0xFF147A42)),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                ),
-                                items: streams
-                                    .map((s) =__GT__ DropdownMenuItem__LT__String__GT__(
-                                          value: s['code']!,
-                                          child: Text(ctrl.tr(s['ar']!, s['fr']!, s['en'])),
-                                        ))
-                                    .toList(),
-                                onChanged: (val) {
-                                  if (val != null) {
-                                    setState(() =__GT__ _calcStream = val);
-                                  }
-                                },
-                              ),
-                            ],
-                            if (canHaveOfficialExamMode) ...[
-                              const SizedBox(height: 12),
-                              SegmentedButton__LT__bool__GT__(
-                                segments: [
-                                  ButtonSegment(
-                                    value: false,
-                                    label: Text(ctrl.tr('حساب المعدل الفصلي', 'Moyenne Trimestrielle', 'Term Average')),
-                                  ),
-                                  ButtonSegment(
-                                    value: true,
-                                    label: Text(
-                                      activeLevel == '4AM'
-                                          ? ctrl.tr('حساب معدل شهادة البيام BEM', 'Moyenne BEM', 'BEM Exam')
-                                          : ctrl.tr('حساب معدل البكالوريا BAC', 'Moyenne BAC', 'BAC Exam'),
-                                    ),
-                                  ),
-                                ],
-                                selected: {_isOfficialExamMode},
-                                onSelectionChanged: (s) {
-                                  setState(() =__GT__ _isOfficialExamMode = s.first);
-                                },
-                              ),
-                            ],
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                FilterChip(
-                                  label: Text(ctrl.tr('تربية بدنية', 'Sport', 'Sport')),
-                                  selected: _includeSport,
-                                  onSelected: (v) =__GT__ setState(() =__GT__ _includeSport = v),
-                                ),
-                                if (activeLevel != '1AP' && activeLevel != '2AP')
-                                  FilterChip(
-                                    label: Text(ctrl.tr('لغة أمازيغية', 'Amazigh', 'Amazigh')),
-                                    selected: _includeAmazigh,
-                                    onSelected: (v) =__GT__ setState(() =__GT__ _includeAmazigh = v),
-                                  ),
-                                if (!is2AS3AS)
-                                  FilterChip(
-                                    label: Text(ctrl.tr('تربية تشكيلية/موسيقية', 'Art/Musique', 'Art/Music')),
-                                    selected: _includeArt,
-                                    onSelected: (v) =__GT__ setState(() =__GT__ _includeArt = v),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE8F5E9),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFF147A42).withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        isPrimary
-                            ? '📌 طريقة الحساب (الطور الابتدائي): العلامات من 10، والمعدل الفصلي = مجموع علامات المواد ÷ عدد المواد.'
-                            : effectiveExamMode
-                                ? '📌 طريقة حساب معدل الشهادة الرسمية: (علامة كل مادة × معاملها) ÷ مجموع المعاملات ($totalCoeffs).'
-                                : '📌 طريقة حساب معدل المادة (موقع الدراسة الجزائري):\nمعدل المادة = ((التقويم + الفرض) ÷ 2 + الاختبار × 2) ÷ 3  |  المعدل = مجموع النقاط ÷ مجموع المعاملات ($totalCoeffs).',
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF0E4B29),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    for (final subjId in subjectIds)
-                      _buildEddirasaSubjectCard(
-                        ctrl: ctrl,
-                        activeLevel: activeLevel,
-                        activeStream: activeStream,
-                        subjId: subjId,
-                        coeff: coeffsMap[subjId] ?? 1,
-                        isPrimary: isPrimary,
-                        isExamCertificateMode: effectiveExamMode,
-                      ),
-                    const SizedBox(height: 14),
-                    Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF147A42), Color(0xFF0F5E32)],
-                        ),
-                        borderRadius: BorderRadius.circular(22),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.14),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Text(
-                                        ctrl.tr('مجموع المعاملات', 'Coefficients', 'Total Coeffs'),
-                                        style: const TextStyle(color: Colors.white70, fontSize: 12.5),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '$totalCoeffs',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 20,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.14),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Text(
-                                        ctrl.tr('مجموع النقاط', 'Total Points', 'Total Points'),
-                                        style: const TextStyle(color: Colors.white70, fontSize: 12.5),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        totalPoints.toStringAsFixed(2),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 20,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  ctrl.tr('معدلك المحسوب', 'Votre Moyenne Calculée', 'Your Calculated Average'),
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black54,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${finalAverage.toStringAsFixed(2)} / $maxScale',
-                                  style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.w900,
-                                    color: Color(0xFF147A42),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _mentionLabel(finalAverage, isPrimary, ctrl),
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF0E4B29),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              side: const BorderSide(color: Colors.white54),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _taqwimMarks.clear();
-                                _devoirMarks.clear();
-                                _examMarks.clear();
-                                _resetVersion++;
-                              });
-                            },
-                            icon: const Icon(Icons.refresh),
-                            label: Text(ctrl.tr('مسح وإعادة ضبط العلامات', 'Réinitialiser', 'Reset Marks')),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                ),
-              );
-            }
-
-            Widget _buildEddirasaSubjectCard({
-              required AppController ctrl,
-              required String activeLevel,
-              required String activeStream,
-              required String subjId,
-              required int coeff,
-              required bool isPrimary,
-              required bool isExamCertificateMode,
-            }) {
-              final key = '${activeLevel}_${activeStream}_${isExamCertificateMode}_$subjId';
-              final subjAvg = _subjectAverage(
-                key: key,
-                isPrimary: isPrimary,
-                isExamCertificateMode: isExamCertificateMode,
-              );
-              final isBemBonusArt = isExamCertificateMode && activeLevel == '4AM' && subjId == 'art';
-              final subjPoints = isBemBonusArt
-                  ? (subjAvg __GT__ 10.0 ? subjAvg - 10.0 : 0.0)
-                  : subjAvg * coeff;
-
-              return Card(
-                key: ValueKey('card_${_resetVersion}_$key'),
-                margin: const EdgeInsets.only(bottom: 10),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(ctrl.subjectEmoji(subjId), style: const TextStyle(fontSize: 24)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              ctrl.subjectTitle(subjId),
-                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF147A42).withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              isBemBonusArt
-                                  ? 'نقاط إضافية (>10)'
-                                  : '${ctrl.tr("المعامل", "Coeff", "Coeff")}: $coeff',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                                color: Color(0xFF147A42),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      if (isPrimary || isExamCertificateMode)
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 3,
-                              child: TextFormField(
-                                initialValue: _getExam(key, isPrimary ? 8.0 : 12.0).toString(),
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                textAlign: TextAlign.center,
-                                decoration: InputDecoration(
-                                  labelText: isPrimary
-                                      ? ctrl.tr('علامة الاختبار (/10)', 'Note (/10)', 'Exam (/10)')
-                                      : ctrl.tr('علامة الشهادة (/20)', 'Note (/20)', 'Exam (/20)'),
-                                  isDense: true,
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                                onChanged: (v) {
-                                  final parsed = double.tryParse(v);
-                                  if (parsed != null) {
-                                    setState(() {
-                                      _examMarks[key] = parsed.clamp(0.0, isPrimary ? 10.0 : 20.0);
-                                    });
-                                  }
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              flex: 2,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFE8F5E9),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  '${ctrl.tr("النقاط", "Pts", "Pts")}: ${subjPoints.toStringAsFixed(2)}',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    color: Color(0xFF147A42),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        )
-                      else
-                        Column(
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    initialValue: _getTaqwim(key, 14.0).toString(),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    textAlign: TextAlign.center,
-                                    decoration: InputDecoration(
-                                      labelText: ctrl.tr('التقويم /20', 'Éval /20', 'CC /20'),
-                                      isDense: true,
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                                    ),
-                                    onChanged: (v) {
-                                      final p = double.tryParse(v);
-                                      if (p != null) {
-                                        setState(() =__GT__ _taqwimMarks[key] = p.clamp(0.0, 20.0));
-                                      }
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextFormField(
-                                    initialValue: _getDevoir(key, 13.0).toString(),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    textAlign: TextAlign.center,
-                                    decoration: InputDecoration(
-                                      labelText: ctrl.tr('الفرض /20', 'Devoir /20', 'Test /20'),
-                                      isDense: true,
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                                    ),
-                                    onChanged: (v) {
-                                      final p = double.tryParse(v);
-                                      if (p != null) {
-                                        setState(() =__GT__ _devoirMarks[key] = p.clamp(0.0, 20.0));
-                                      }
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextFormField(
-                                    initialValue: _getExam(key, 13.0).toString(),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    textAlign: TextAlign.center,
-                                    decoration: InputDecoration(
-                                      labelText: ctrl.tr('الاختبار /20', 'Examen /20', 'Exam /20'),
-                                      isDense: true,
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                                    ),
-                                    onChanged: (v) {
-                                      final p = double.tryParse(v);
-                                      if (p != null) {
-                                        setState(() =__GT__ _examMarks[key] = p.clamp(0.0, 20.0));
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE8F5E9),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    '${ctrl.tr("معدل المادة", "Moyenne matière", "Subject Avg")}: ${subjAvg.toStringAsFixed(2)} / 20',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12.5,
-                                      color: Color(0xFF0E4B29),
-                                    ),
-                                  ),
-                                  Text(
-                                    '${ctrl.tr("المجموع", "Total", "Points")}: ${subjPoints.toStringAsFixed(2)}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 12.5,
-                                      color: Color(0xFF147A42),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            }
-          }
-          ''')
-
-          # 13. Write lib/screens/profile_screen.dart
-          write_file("lib/screens/profile_screen.dart", r'''import 'package:flutter/material.dart';
-          import '../main.dart';
-
-          class ProfileScreen extends StatelessWidget {
-            const ProfileScreen({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              return const AccountManagementPage();
-            }
-          }
-
-          class AppDrawerMenu extends StatelessWidget {
-            const AppDrawerMenu({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final p = ctrl.currentProfile;
-              final avatar = p.gender == 'female' ? '👧🏻' : '👦🏻';
-
-              return Drawer(
-                child: Column(
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.fromLTRB(20, 48, 20, 24),
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF0F6334), Color(0xFF147A42)],
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            radius: 34,
-                            backgroundColor: Colors.white.withOpacity(0.2),
-                            child: Text(avatar, style: const TextStyle(fontSize: 38)),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            p.name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            ctrl.isGoogleSignedIn
-                                ? 'Google: ${ctrl.accountEmail}'
-                                : ctrl.levelLabel(p.levelCode),
-                            style: const TextStyle(color: Colors.white70, fontSize: 13.5),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        children: [
-                          ListTile(
-                            leading: const Icon(Icons.person_outline, color: Color(0xFF147A42)),
-                            title: Text(
-                              ctrl.tr('حسابي الشخصي', 'Mon Compte', 'My Account'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Text(
-                              ctrl.tr(
-                                'الاسم، الجنس (ذكر/أنثى)، وحساب Google',
-                                'Nom, sexe et connexion Google',
-                                'Name, gender & Google Sign-In',
-                              ),
-                            ),
-                            onTap: () {
-                              Navigator.pop(context);
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) =__GT__ const AccountManagementPage()),
-                              );
-                            },
-                          ),
-                          const Divider(),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Icon(Icons.language, color: Color(0xFF147A42)),
-                                    const SizedBox(width: 12),
-                                    Text(
-                                      ctrl.tr('اللغة / Language', 'Langue', 'Language'),
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                SegmentedButton__LT__String__GT__(
-                                  segments: const [
-                                    ButtonSegment(value: 'ar', label: Text('العربية')),
-                                    ButtonSegment(value: 'fr', label: Text('Français')),
-                                    ButtonSegment(value: 'en', label: Text('English')),
-                                  ],
-                                  selected: {ctrl.languageCode},
-                                  onSelectionChanged: (s) {
-                                    ctrl.languageCode = s.first;
-                                    ctrl.saveState();
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Divider(),
-                          SwitchListTile(
-                            secondary: const Icon(Icons.dark_mode_outlined, color: Color(0xFF147A42)),
-                            title: Text(
-                              ctrl.tr('الوضع الليلي', 'Mode Sombre', 'Dark Mode'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            value: ctrl.isDarkMode,
-                            onChanged: (v) {
-                              ctrl.isDarkMode = v;
-                              ctrl.saveState();
-                            },
-                          ),
-                          const Divider(),
-                          ListTile(
-                            leading: const Icon(Icons.info_outline, color: Color(0xFF147A42)),
-                            title: Text(
-                              ctrl.tr('من نحن', 'À propos de nous', 'About Us'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            onTap: () {
-                              Navigator.pop(context);
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) =__GT__ const AboutUsPage()),
-                              );
-                            },
-                          ),
-                          ListTile(
-                            leading: const Icon(Icons.privacy_tip_outlined, color: Color(0xFF147A42)),
-                            title: Text(
-                              ctrl.tr('سياسة الخصوصية', 'Politique de confidentialité', 'Privacy Policy'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            onTap: () {
-                              Navigator.pop(context);
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) =__GT__ const PrivacyPolicyPage()),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-
-          class AccountManagementPage extends StatefulWidget {
-            const AccountManagementPage({super.key});
-
-            @override
-            State__LT__AccountManagementPage__GT__ createState() =__GT__ _AccountManagementPageState();
-          }
-
-          class _AccountManagementPageState extends State__LT__AccountManagementPage__GT__ {
-            late TextEditingController _nameCtrl;
-            late TextEditingController _emailCtrl;
-
-            @override
-            void initState() {
-              super.initState();
-              _nameCtrl = TextEditingController();
-              _emailCtrl = TextEditingController();
-            }
-
-            @override
-            void didChangeDependencies() {
-              super.didChangeDependencies();
-              final ctrl = AppScope.of(context);
-              _nameCtrl.text = ctrl.currentProfile.name;
-              _emailCtrl.text = ctrl.accountEmail.isEmpty
-                  ? 'walid.studydz@gmail.com'
-                  : ctrl.accountEmail;
-            }
-
-            @override
-            void dispose() {
-              _nameCtrl.dispose();
-              _emailCtrl.dispose();
-              super.dispose();
-            }
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              final p = ctrl.currentProfile;
-
-              return Scaffold(
-                appBar: AppBar(
-                  title: Text(ctrl.tr('حسابي الشخصي', 'Mon Compte', 'My Account')),
-                ),
-                body: ListView(
-                  padding: const EdgeInsets.all(18),
-                  children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Center(
-                              child: CircleAvatar(
-                                radius: 42,
-                                backgroundColor: const Color(0xFF147A42).withOpacity(0.14),
-                                child: Text(
-                                  p.gender == 'female' ? '👧🏻' : '👦🏻',
-                                  style: const TextStyle(fontSize: 48),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            TextField(
-                              controller: _nameCtrl,
-                              decoration: InputDecoration(
-                                labelText: ctrl.tr('الاسم', 'Prénom', 'Name'),
-                                prefixIcon: const Icon(Icons.person_outline),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              ctrl.tr('الجنس:', 'Sexe :', 'Gender:'),
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ChoiceChip(
-                                    label: Text('👦🏻 ${ctrl.tr("ذكر", "Garçon", "Male")}'),
-                                    selected: p.gender == 'male',
-                                    onSelected: (_) {
-                                      setState(() =__GT__ p.gender = 'male');
-                                      ctrl.saveState();
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: ChoiceChip(
-                                    label: Text('👧🏻 ${ctrl.tr("أنثى", "Fille", "Female")}'),
-                                    selected: p.gender == 'female',
-                                    onSelected: (_) {
-                                      setState(() =__GT__ p.gender = 'female');
-                                      ctrl.saveState();
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF147A42),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                              ),
-                              onPressed: () {
-                                if (_nameCtrl.text.trim().isNotEmpty) {
-                                  p.name = _nameCtrl.text.trim();
-                                  ctrl.saveState();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        ctrl.tr('تم حفظ معلومات الحساب بنجاح', 'Profil enregistré', 'Profile saved'),
-                                      ),
-                                    ),
-                                  );
-                                }
-                              },
-                              icon: const Icon(Icons.save_outlined),
-                              label: Text(ctrl.tr('حفظ التعديلات', 'Enregistrer', 'Save Changes')),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                const CircleAvatar(
-                                  backgroundColor: Colors.red,
-                                  foregroundColor: Colors.white,
-                                  child: Text('G', style: TextStyle(fontWeight: FontWeight.w900)),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    ctrl.isGoogleSignedIn
-                                        ? ctrl.tr(
-                                            'مرتبط بحساب Google: ${ctrl.accountEmail}',
-                                            'Connecté avec Google : ${ctrl.accountEmail}',
-                                            'Signed in with Google: ${ctrl.accountEmail}',
-                                          )
-                                        : ctrl.tr(
-                                            'ربط أو تسجيل الدخول بحساب Google',
-                                            'Se connecter avec Google',
-                                            'Sign in with Google',
-                                          ),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            TextField(
-                              controller: _emailCtrl,
-                              keyboardType: TextInputType.emailAddress,
-                              decoration: InputDecoration(
-                                labelText: ctrl.tr('بريد حساب Google', 'Adresse Gmail', 'Google Email'),
-                                prefixIcon: const Icon(Icons.email_outlined),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 13),
-                              ),
-                              onPressed: () {
-                                ctrl.isGoogleSignedIn = true;
-                                ctrl.isGuest = false;
-                                ctrl.accountEmail = _emailCtrl.text.trim();
-                                if (_nameCtrl.text.trim().isNotEmpty) {
-                                  p.name = _nameCtrl.text.trim();
-                                  ctrl.accountName = p.name;
-                                }
-                                ctrl.saveState();
-                                setState(() {});
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      ctrl.tr(
-                                        'تم تسجيل الدخول بحساب Google بنجاح!',
-                                        'Connecté avec Google !',
-                                        'Signed in with Google successfully!',
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.login),
-                              label: Text(
-                                ctrl.tr(
-                                  'تسجيل الدخول باستخدام Google',
-                                  'Connexion Google',
-                                  'Sign in with Google',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-
-          class AboutUsPage extends StatelessWidget {
-            const AboutUsPage({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              return Scaffold(
-                appBar: AppBar(
-                  title: Text(ctrl.tr('من نحن', 'À propos de nous', 'About Us')),
-                ),
-                body: ListView(
-                  padding: const EdgeInsets.all(18),
-                  children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Study DZ • ستدي دي زد 🇩🇿',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF147A42),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              ctrl.tr(
-                                'منصة تعليمية جزائرية شاملة صُممت لمرافقة التلاميذ في جميع الأطوار التعليمية الثلاثة (الابتدائي، المتوسط، الثانوي) مع الدروس، الملخصات، الفروض، الاختبارات، الكتب المدرسية، ومواضيع الشهادات الرسمية من 2008 إلى 2026، بالإضافة إلى حاسبة المعدل المعتمدة.\n\n'
-                                'إخلاء مسؤولية: هذا التطبيق مبادرة تعليمية مستقلة وغير تابع لوزارة التربية الوطنية أو الديوان الوطني للامتحانات والمسابقات (ONEC).',
-                                'Study DZ est une application éducative algérienne couvrant le Primaire, le Moyen (BEM) et le Secondaire (BAC).',
-                                'Study DZ is an Algerian educational platform covering Primary, Middle (BEM), and High School (BAC) levels.',
-                              ),
-                              style: const TextStyle(fontSize: 15.5, height: 1.7),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-
-          class PrivacyPolicyPage extends StatelessWidget {
-            const PrivacyPolicyPage({super.key});
-
-            @override
-            Widget build(BuildContext context) {
-              final ctrl = AppScope.of(context);
-              return Scaffold(
-                appBar: AppBar(
-                  title: Text(ctrl.tr('سياسة الخصوصية', 'Politique de confidentialité', 'Privacy Policy')),
-                ),
-                body: ListView(
-                  padding: const EdgeInsets.all(18),
-                  children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              ctrl.tr('سياسة الخصوصية وحماية البيانات', 'Protection des données', 'Data Privacy Policy'),
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF147A42),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              ctrl.tr(
-                                '1. التخزين المحلي الكامل: يتم حفظ جميع بياناتك وعلاماتك محلياً داخل ذاكرة هاتفك فقط.\n\n'
-                                '2. عدم مشاركة البيانات: لا نقوم ببيع أو مشاركة أي بيانات شخصية مع أي طرف ثالث.',
-                                'Toutes vos préférences et notes sont enregistrées localement sur votre téléphone.',
-                                'All profile settings and calculated marks are stored locally on your device.',
-                              ),
-                              style: const TextStyle(fontSize: 15.5, height: 1.7),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-          }
-          ''')
-
-          # 14. Clean pubspec.yaml
+          # 10. Add google_mobile_ads to pubspec.yaml and set minSdk = 23 in build.gradle
           with open("pubspec.yaml", "r", encoding="utf-8") as f:
               pub = f.read()
           pub = re.sub(r"^name:\s*.*$", "name: study_dz", pub, flags=re.MULTILINE)
+          if "google_mobile_ads:" not in pub:
+              pub = pub.replace("dependencies:\n", "dependencies:\n  google_mobile_ads: ^5.1.0\n", 1)
           if "dependency_overrides:" not in pub:
               pub += "\ndependency_overrides:\n  flutter_tts: 4.0.2\n  flutter_local_notifications: 17.2.3\n  shared_preferences: 2.2.3\n  path_provider: 2.1.4\n  sqflite: 2.3.3+1\n"
           with open("pubspec.yaml", "w", encoding="utf-8") as f:
               f.write(pub)
 
-          # 15. Upgrade AGP & Kotlin in android/settings.gradle
+          # 11. Upgrade AGP & Kotlin in android/settings.gradle
           with open("android/settings.gradle", "r", encoding="utf-8") as f:
               sg = f.read()
           sg = re.sub(r'id\s+"com\.android\.application"\s+version\s+"[^"]+"', 'id "com.android.application" version "8.3.2"', sg)
@@ -4708,7 +3200,7 @@ jobs:
           with open("android/settings.gradle", "w", encoding="utf-8") as f:
               f.write(sg)
 
-          # 16. Upgrade Gradle Wrapper to 8.4
+          # 12. Upgrade Gradle Wrapper to 8.4
           gw_path = "android/gradle/wrapper/gradle-wrapper.properties"
           with open(gw_path, "r", encoding="utf-8") as f:
               gw = f.read()
@@ -4716,7 +3208,7 @@ jobs:
           with open(gw_path, "w", encoding="utf-8") as f:
               f.write(gw)
 
-          # 17. Write android/app/build.gradle
+          # 13. Write android/app/build.gradle (minSdk 23 required for Google Mobile Ads 5.x)
           write_file("android/app/build.gradle", r'''plugins {
               id "com.android.application"
               id "kotlin-android"
@@ -4740,10 +3232,10 @@ jobs:
 
               defaultConfig {
                   applicationId = "dz.studydz.app"
-                  minSdk = 21
+                  minSdk = 23
                   targetSdk = 34
-                  versionCode = 5
-                  versionName = "5.0.0"
+                  versionCode = 6
+                  versionName = "6.0.0"
                   multiDexEnabled true
               }
 
@@ -4766,7 +3258,7 @@ jobs:
           }
           ''')
 
-          # 18. Copy custom app icon if present
+          # 14. Copy custom app icon if present
           for icon_candidate in ["icon.png", "assets/icon.png"]:
               if os.path.exists(icon_candidate):
                   for folder in ["mipmap-mdpi", "mipmap-hdpi", "mipmap-xhdpi", "mipmap-xxhdpi", "mipmap-xxxhdpi"]:
@@ -4774,7 +3266,7 @@ jobs:
                       if os.path.exists(os.path.dirname(dest)):
                           shutil.copy2(icon_candidate, dest)
 
-          # 19. Build Lightweight Release APK
+          # 15. Build Release APK
           run_cmd(["flutter", "pub", "get"])
           run_cmd(["flutter", "build", "apk", "--release", "--no-tree-shake-icons"])
 
