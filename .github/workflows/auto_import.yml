@@ -2,24 +2,24 @@ name: master-5-sites-harvester
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */2 * * *'
   push:
     paths:
       - 'links.txt'
   workflow_dispatch:
     inputs:
       site_choice:
-        description: 'Site: ALL (كل المواقع), eddirasa, dzexams, dzmadrassa, bacdz, educationdz'
+        description: 'Site: ALL, eddirasa, dzexams, dzmadrassa, bacdz, educationdz'
         required: true
         default: 'ALL'
       target_filter:
-        description: 'Target: ALL (كل المستويات), bac, bem, 5eme, 3as, 2as, 1as, 4am, 3am, 2am, 1am, 5ap'
+        description: 'Target: ALL, bac, bem, 5eme, 3as, 2as, 1as, 4am, 3am, 2am, 1am, 5ap, 4ap, 3ap, 2ap, 1ap'
         required: true
         default: 'ALL'
       max_files_per_run:
-        description: 'Max new PDFs to save in this run (e.g. 50)'
+        description: 'Max new PDFs to save in this run (e.g. 500)'
         required: true
-        default: '50'
+        default: '500'
       extra_url:
         description: 'Optional: Paste any specific URL here'
         required: false
@@ -31,14 +31,15 @@ permissions:
 jobs:
   harvest-study-sites:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Install Scraper Libraries
-        run: pip install requests beautifulsoup4 pillow
+        run: pip install requests beautifulsoup4 pillow lxml
 
-      - name: Crawl All 5 Algerian Study Websites Into files/
+      - name: Deep Crawl All 5 Sites with Persistent Memory
         env:
           SITE_CHOICE: ${{ github.event.inputs.site_choice }}
           TARGET_FILTER: ${{ github.event.inputs.target_filter }}
@@ -49,79 +50,114 @@ jobs:
           import os
           import re
           import io
+          import time
           import hashlib
+          import threading
           import urllib.parse
           import subprocess
+          from concurrent.futures import ThreadPoolExecutor, as_completed
           import requests
           from bs4 import BeautifulSoup
           from PIL import Image
 
           os.makedirs("files", exist_ok=True)
+          visited_file = "files/visited_hashes.txt"
+          visited_hashes = set()
+
+          if os.path.exists(visited_file):
+              with open(visited_file, "r", encoding="utf-8") as vf:
+                  for line in vf:
+                      h = line.strip()
+                      if h:
+                          visited_hashes.add(h)
+
+          print("Loaded previously visited URLs count:", len(visited_hashes))
 
           headers = {
-              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
           }
 
           subprocess.run(["git", "config", "user.name", "StudyDZ-Harvester"], check=False)
           subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
 
-          def git_commit_and_push(msg):
-              subprocess.run(["git", "add", "files/"], check=False)
-              res = subprocess.run(["git", "diff", "--staged", "--quiet"])
-              if res.returncode != 0:
-                  subprocess.run(["git", "commit", "-m", msg], check=False)
-                  subprocess.run(["git", "push"], check=False)
+          lock = threading.Lock()
+          saved_total = 0
 
           try:
-              max_to_save = int(os.environ.get("MAX_FILES", "50").strip() or "50")
+              max_to_save = int(os.environ.get("MAX_FILES", "500").strip() or "500")
           except Exception:
-              max_to_save = 50
+              max_to_save = 500
 
           site_choice = (os.environ.get("SITE_CHOICE", "ALL").strip() or "ALL").lower()
           target_filter = (os.environ.get("TARGET_FILTER", "ALL").strip() or "ALL").lower()
 
+          def url_hash(u):
+              return hashlib.md5(u.strip().encode("utf-8")).hexdigest()[:12]
+
+          def is_visited(u):
+              h = url_hash(u)
+              with lock:
+                  return h in visited_hashes
+
+          def mark_visited(u):
+              h = url_hash(u)
+              with lock:
+                  if h not in visited_hashes:
+                      visited_hashes.add(h)
+                      with open(visited_file, "a", encoding="utf-8") as vf:
+                          vf.write(h + "\n")
+
+          def git_commit_and_push(msg):
+              with lock:
+                  subprocess.run(["git", "pull", "--rebase", "--autostash"], check=False)
+                  subprocess.run(["git", "add", "files/"], check=False)
+                  res = subprocess.run(["git", "diff", "--staged", "--quiet"])
+                  if res.returncode != 0:
+                      subprocess.run(["git", "commit", "-m", msg], check=False)
+                      subprocess.run(["git", "push"], check=False)
+
           level_rules = [
-              ("1ap", ["الأولى ابتدائي", "اولى ابتدائي", "1 ابتدائي", "1 إبتدائي", "1ap"]),
-              ("2ap", ["الثانية ابتدائي", "ثانية ابتدائي", "2 ابتدائي", "2 إبتدائي", "2ap"]),
-              ("3ap", ["الثالثة ابتدائي", "ثالثة ابتدائي", "3 ابتدائي", "3 إبتدائي", "3ap"]),
-              ("4ap", ["الرابعة ابتدائي", "رابعة ابتدائي", "4 ابتدائي", "4 إبتدائي", "4ap"]),
-              ("5ap", ["الخامسة ابتدائي", "خامسة ابتدائي", "5 ابتدائي", "5 إبتدائي", "5ap"]),
-              ("1am", ["الأولى متوسط", "اولى متوسط", "1 متوسط", "1am"]),
-              ("2am", ["الثانية متوسط", "ثانية متوسط", "2 متوسط", "2am"]),
-              ("3am", ["الثالثة متوسط", "ثالثة متوسط", "3 متوسط", "3am"]),
-              ("4am", ["الرابعة متوسط", "رابعة متوسط", "4 متوسط", "4am"]),
-              ("1as", ["الأولى ثانوي", "اولى ثانوي", "1 ثانوي", "1as"]),
-              ("2as", ["الثانية ثانوي", "ثانية ثانوي", "2 ثانوي", "2as"]),
-              ("3as", ["الثالثة ثانوي", "ثالثة ثانوي", "3 ثانوي", "3as"]),
+              ("1ap", ["الأولى ابتدائي", "اولى ابتدائي", "1 ابتدائي", "1 إبتدائي", "1ap", "/1ap"]),
+              ("2ap", ["الثانية ابتدائي", "ثانية ابتدائي", "2 ابتدائي", "2 إبتدائي", "2ap", "/2ap"]),
+              ("3ap", ["الثالثة ابتدائي", "ثالثة ابتدائي", "3 ابتدائي", "3 إبتدائي", "3ap", "/3ap"]),
+              ("4ap", ["الرابعة ابتدائي", "رابعة ابتدائي", "4 ابتدائي", "4 إبتدائي", "4ap", "/4ap"]),
+              ("5ap", ["الخامسة ابتدائي", "خامسة ابتدائي", "5 ابتدائي", "5 إبتدائي", "5ap", "/5ap"]),
+              ("1am", ["الأولى متوسط", "اولى متوسط", "1 متوسط", "1am", "/1am"]),
+              ("2am", ["الثانية متوسط", "ثانية متوسط", "2 متوسط", "2am", "/2am"]),
+              ("3am", ["الثالثة متوسط", "ثالثة متوسط", "3 متوسط", "3am", "/3am"]),
+              ("4am", ["الرابعة متوسط", "رابعة متوسط", "4 متوسط", "4am", "/4am"]),
+              ("1as", ["الأولى ثانوي", "اولى ثانوي", "1 ثانوي", "1as", "/1as"]),
+              ("2as", ["الثانية ثانوي", "ثانية ثانوي", "2 ثانوي", "2as", "/2as"]),
+              ("3as", ["الثالثة ثانوي", "ثالثة ثانوي", "3 ثانوي", "3as", "/3as"]),
           ]
 
           subject_rules = [
-              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية", "snv", "sciences", "sci"]),
-              ("physics", ["العلوم الفيزيائية", "الفيزياء", "فيزياء", "physique", "phys"]),
+              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية", "snv", "sciences-naturelles", "science", "sci"]),
+              ("physics", ["العلوم الفيزيائية", "الفيزياء", "فيزياء", "physique", "physics", "phys"]),
               ("math", ["الرياضيات", "رياضيات", "mathematiques", "mathematics", "math"]),
               ("arabic", ["اللغة العربية", "الأدب العربي", "عربية", "arabe", "arabic"]),
               ("french", ["اللغة الفرنسية", "فرنسية", "francais", "french"]),
               ("english", ["اللغة الإنجليزية", "اللغة الانجليزية", "إنجليزية", "انجليزية", "anglais", "english"]),
               ("hisgeo", ["التاريخ والجغرافيا", "التاريخ و الجغرافيا", "تاريخ", "جغرافيا", "histoire", "hisgeo", "history"]),
-              ("islamic", ["العلوم الإسلامية", "التربية الإسلامية", "التربية الاسلامية", "شريعة", "islamia", "islamic"]),
+              ("islamic", ["العلوم الإسلامية", "التربية الإسلامية", "التربية الاسلامية", "شريعة", "islamia", "islamic", "sciences-islamiques"]),
               ("philo", ["الفلسفة", "فلسفة", "philosophie", "philo"]),
-              ("civics", ["التربية المدنية", "مدنية", "civique", "civics"]),
+              ("civics", ["التربية المدنية", "مدنية", "civique", "civics", "education-civique"]),
               ("cs", ["الإعلام الآلي", "الاعلام الالي", "معلوماتية", "informatique"]),
               ("accounting", ["التسيير المحاسبي", "محاسبة", "comptabilite", "gestion"]),
               ("economy", ["الاقتصاد والمناجمنت", "الإقتصاد والمناجمنت", "اقتصاد", "economie"]),
               ("law", ["القانون", "القانــــون", "droit", "law"]),
-              ("engineering", ["الهندسة", "هندسة", "تكنولوجيا", "genie"]),
+              ("engineering", ["الهندسة", "هندسة", "تكنولوجيا", "genie", "technologie"]),
               ("amazigh", ["اللغة الأمازيغية", "أمازيغية", "امازيغية", "tamazight"]),
-              ("third_lang", ["اللغة الإيطالية", "اللغة الإسبانية", "اللغة الألمانية", "اسبانية", "المانية", "ايطالية", "spanish", "german", "italian"]),
-              ("art", ["التربية التشكيلية", "التربية الموسيقية", "تشكيلية", "موسيقية"]),
+              ("third_lang", ["اللغة الإيطالية", "اللغة الإسبانية", "اللغة الألمانية", "اسبانية", "المانية", "ايطالية", "espagnol", "allemand", "italien", "spanish", "german", "italian"]),
+              ("art", ["التربية التشكيلية", "التربية الموسيقية", "تشكيلية", "موسيقية", "artistique", "musicale"]),
           ]
 
           stream_rules = [
-              ("lp", ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "اداب و فلسفة", "literature-philosophy", "آداب-وفلسفة"]),
+              ("lp", ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "اداب و فلسفة", "literature-philosophy", "آداب-وفلسفة", "lettres"]),
               ("se", ["علوم تجريبية", "العلوم التجريبية", "علوم-تجريبية", "/sciences/"]),
               ("tm", ["تقني رياضي", "التقني الرياضي", "تقني-رياضي", "tech-math"]),
               ("ge", ["تسيير واقتصاد", "تسيير و اقتصاد", "تسيير-واقتصاد", "management"]),
-              ("le", ["لغات أجنبية", "لغات اجنبية", "لغات-أجنبية", "foreign-languages"]),
+              ("le", ["لغات أجنبية", "لغات اجنبية", "لغات-أجنبية", "foreign-languages", "langues"]),
               ("mt", ["شعبة رياضيات", "شعبة الرياضيات", "/mathematics/"]),
           ]
 
@@ -143,11 +179,21 @@ jobs:
               elif any(w in t for w in ["شهادة التعليم الابتدائي", "شهادة التعليم الإبتدائي", "السانكيام", "5eme", "cinquieme"]):
                   archive_type = "5eme"
 
-              level = "3as"
+              level = None
               for code, keys in level_rules:
                   if any(k in t for k in keys):
                       level = code
                       break
+
+              if not level:
+                  if archive_type == "bac":
+                      level = "3as"
+                  elif archive_type == "bem":
+                      level = "4am"
+                  elif archive_type == "5eme":
+                      level = "5ap"
+                  else:
+                      level = "3as"
 
               subject = None
               for code, keys in subject_rules:
@@ -162,15 +208,15 @@ jobs:
                       break
 
               trimester = "t1"
-              if any(w in t for w in ["الفصل الثاني", "الثلاثي الثاني", "ف2", "t2", "2eme"]):
+              if any(w in t for w in ["الفصل الثاني", "الثلاثي الثاني", "ف2", "t2", "2eme", "trimestre-2", "2-trimestre"]):
                   trimester = "t2"
-              elif any(w in t for w in ["الفصل الثالث", "الثلاثي الثالث", "ف3", "t3", "3eme"]):
+              elif any(w in t for w in ["الفصل الثالث", "الثلاثي الثالث", "ف3", "t3", "3eme", "trimestre-3", "3-trimestre"]):
                   trimester = "t3"
 
               category = "exam"
-              if any(w in t for w in ["كتاب", "الكتاب المدرسي", "livre", "book"]):
+              if any(w in t for w in ["كتاب", "الكتاب المدرسي", "livre", "book", "manuel"]):
                   category = "book"
-              elif any(w in t for w in ["ملخص", "ملخصات", "resume"]):
+              elif any(w in t for w in ["ملخص", "ملخصات", "resume", " ملخص "]):
                   category = "resume"
               elif any(w in t for w in ["فرض", "فروض", "devoir", "test"]):
                   category = "test"
@@ -195,75 +241,80 @@ jobs:
                   return meta["archive_type"] == target_filter
               return meta["level"] == target_filter
 
-          def build_filename(meta, unique_tag=""):
+          def build_filepath(meta, unique_tag=""):
               subj = meta["subject"] or "math"
               sfx = f"_{unique_tag}" if unique_tag else ""
               if meta["archive_type"] and meta["year"]:
+                  folder = os.path.join("files", meta["archive_type"])
+                  os.makedirs(folder, exist_ok=True)
                   if meta["archive_type"] == "bac":
-                      return f"bac_{meta['year']}_{subj}_{meta['stream']}.pdf"
-                  return f"{meta['archive_type']}_{meta['year']}_{subj}.pdf"
+                      return os.path.join(folder, f"bac_{meta['year']}_{subj}_{meta['stream']}{sfx}.pdf")
+                  return os.path.join(folder, f"{meta['archive_type']}_{meta['year']}_{subj}{sfx}.pdf")
 
+              folder = os.path.join("files", meta["level"])
+              os.makedirs(folder, exist_ok=True)
               if meta["category"] == "book":
-                  return f"{meta['level']}_{subj}_book{sfx}.pdf"
+                  return os.path.join(folder, f"{meta['level']}_{subj}_book{sfx}.pdf")
 
-              return f"{meta['level']}_{subj}_{meta['trimester']}_{meta['category']}{sfx}.pdf"
+              return os.path.join(folder, f"{meta['level']}_{subj}_{meta['trimester']}_{meta['category']}{sfx}.pdf")
 
           def download_or_convert_to_pdf(page_url, out_filepath):
               if os.path.exists(out_filepath) and os.path.getsize(out_filepath) not in range(0, 1500):
                   return False
 
               try:
-                  # 1. Check ?file= parameter (Eddirasa viewer)
                   parsed_q = urllib.parse.parse_qs(urllib.parse.urlparse(page_url).query)
                   if "file" in parsed_q:
                       direct_u = urllib.parse.urljoin(page_url, parsed_q["file"][0])
-                      pr = requests.get(direct_u, headers=headers, timeout=25)
+                      pr = requests.get(direct_u, headers=headers, timeout=20)
                       if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                          with open(out_filepath, "wb") as f:
-                              f.write(pr.content)
+                          with lock:
+                              with open(out_filepath, "wb") as f:
+                                  f.write(pr.content)
                           print("Saved viewer PDF:", out_filepath)
                           return True
 
-                  # 2. Direct .pdf URL
                   if page_url.lower().split("?")[0].endswith(".pdf"):
-                      pr = requests.get(page_url, headers=headers, timeout=25)
+                      pr = requests.get(page_url, headers=headers, timeout=20)
                       if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                          with open(out_filepath, "wb") as f:
-                              f.write(pr.content)
+                          with lock:
+                              with open(out_filepath, "wb") as f:
+                                  f.write(pr.content)
                           print("Saved direct PDF:", out_filepath)
                           return True
 
-                  r = requests.get(page_url, headers=headers, timeout=25)
+                  r = requests.get(page_url, headers=headers, timeout=20)
                   if r.status_code != 200:
                       return False
                   if r.content[:4] == b"%PDF":
-                      with open(out_filepath, "wb") as f:
-                          f.write(r.content)
+                      with lock:
+                          with open(out_filepath, "wb") as f:
+                              f.write(r.content)
                       print("Saved binary PDF:", out_filepath)
                       return True
 
-                  soup = BeautifulSoup(r.text, "html.parser")
-
-                  # 3. Search inside page for embedded PDFs, wp-content/uploads/*.pdf, or Google Drive
-                  # Also check regex in raw HTML for hidden PDF links (used by Eddirasa / DzMadrassa / DzExams)
+                  # Search raw HTML for any direct .pdf URLs
                   raw_pdf_matches = re.findall(r'https?://[^\s"\'\\]+?\.pdf', r.text, flags=re.IGNORECASE)
                   for pdf_candidate in raw_pdf_matches:
                       lower_cand = pdf_candidate.lower()
-                      if any(cor_w in lower_cand for cor_w in ["cor", "sol", "تصحيح", "حل"]):
+                      if any(cor_w in lower_cand for cor_w in ["_cor", "-cor", "_sol", "-sol"]):
                           continue
-                      pr = requests.get(pdf_candidate, headers=headers, timeout=25)
+                      pr = requests.get(pdf_candidate, headers=headers, timeout=20)
                       if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                          with open(out_filepath, "wb") as f:
-                              f.write(pr.content)
-                          print("Saved regex-discovered PDF:", out_filepath)
+                          with lock:
+                              with open(out_filepath, "wb") as f:
+                                  f.write(pr.content)
+                          print("Saved HTML PDF:", out_filepath)
                           return True
+
+                  soup = BeautifulSoup(r.text, "html.parser")
 
                   for tag in soup.find_all(["a", "iframe", "embed", "object"]):
                       raw_link = tag.get("href") or tag.get("src") or tag.get("data") or ""
                       if not raw_link:
                           continue
                       tag_text = tag.get_text(" ", strip=True)
-                      if any(cor_w in tag_text for cor_w in ["التصحيح", "تصحيح", "الحل"]):
+                      if any(cor_w in tag_text for cor_w in ["التصحيح", "تصحيح"]):
                           continue
 
                       full_link = urllib.parse.urljoin(page_url, raw_link)
@@ -271,18 +322,20 @@ jobs:
                       sub_q = urllib.parse.parse_qs(urllib.parse.urlparse(full_link).query)
                       if "file" in sub_q:
                           pdf_u = urllib.parse.urljoin(full_link, sub_q["file"][0])
-                          pr = requests.get(pdf_u, headers=headers, timeout=25)
+                          pr = requests.get(pdf_u, headers=headers, timeout=20)
                           if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                              with open(out_filepath, "wb") as f:
-                                  f.write(pr.content)
-                              print("Saved embedded viewer PDF:", out_filepath)
+                              with lock:
+                                  with open(out_filepath, "wb") as f:
+                                      f.write(pr.content)
+                              print("Saved iframe viewer PDF:", out_filepath)
                               return True
 
                       if ".pdf" in full_link.lower() and "docs.google.com" not in full_link.lower():
-                          pr = requests.get(full_link, headers=headers, timeout=25)
+                          pr = requests.get(full_link, headers=headers, timeout=20)
                           if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                              with open(out_filepath, "wb") as f:
-                                  f.write(pr.content)
+                              with lock:
+                                  with open(out_filepath, "wb") as f:
+                                      f.write(pr.content)
                               print("Saved linked PDF:", out_filepath)
                               return True
 
@@ -293,16 +346,17 @@ jobs:
                       if gd_match:
                           fid = gd_match.group(1)
                           dl_u = f"https://drive.google.com/uc?export=download&id={fid}"
-                          pr = requests.get(dl_u, headers=headers, timeout=25)
+                          pr = requests.get(dl_u, headers=headers, timeout=20)
                           if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                              with open(out_filepath, "wb") as f:
-                                  f.write(pr.content)
+                              with lock:
+                                  with open(out_filepath, "wb") as f:
+                                      f.write(pr.content)
                               print("Saved Google Drive PDF:", out_filepath)
                               return True
 
-                  # 4. Fallback: Convert scanned exam images inside the page into a single clean PDF
+                  # Fallback: Convert scanned exam images inside the page into a single clean PDF
                   content_box = (
-                      soup.find("div", class_=re.compile(r"entry-content|post-content|article|main"))
+                      soup.find("div", class_=re.compile(r"entry-content|post-content|article|main|sujet"))
                       or soup
                   )
                   pil_imgs = []
@@ -315,7 +369,7 @@ jobs:
                           continue
                       src = urllib.parse.urljoin(page_url, src)
                       try:
-                          ir = requests.get(src, headers=headers, timeout=20)
+                          ir = requests.get(src, headers=headers, timeout=15)
                           if ir.status_code == 200:
                               im = Image.open(io.BytesIO(ir.content)).convert("RGB")
                               w, h = im.size
@@ -325,29 +379,125 @@ jobs:
                           pass
 
                   if pil_imgs:
-                      pil_imgs[0].save(
-                          out_filepath,
-                          "PDF",
-                          resolution=100.0,
-                          save_all=True,
-                          append_images=pil_imgs[1:],
-                      )
+                      with lock:
+                          pil_imgs[0].save(
+                              out_filepath,
+                              "PDF",
+                              resolution=100.0,
+                              save_all=True,
+                              append_images=pil_imgs[1:],
+                          )
                       print("Converted exam images to PDF:", out_filepath)
                       return True
 
-              except Exception as e:
-                  print("Error on:", page_url, e)
+              except Exception:
+                  pass
               return False
 
-          saved_total = 0
-
-          def harvest_wordpress_api(domain_url):
+          def process_single_article_url(url, title_hint=""):
               global saved_total
-              for page_num in range(1, 6):
+              if saved_total not in range(0, max_to_save):
+                  return False
+              if is_visited(url):
+                  return False
+
+              combined = title_hint + " " + urllib.parse.unquote(url)
+              meta = analyze_metadata(combined)
+
+              # If subject wasn't obvious from URL alone, fetch title quickly
+              if not meta["subject"]:
+                  try:
+                      r = requests.get(url, headers=headers, timeout=15)
+                      if r.status_code != 200:
+                          mark_visited(url)
+                          return False
+                      soup = BeautifulSoup(r.text, "html.parser")
+                      page_title = soup.title.string if soup.title else ""
+                      h1_txt = " ".join([h.get_text(" ", strip=True) for h in soup.find_all(["h1", "h2"])])
+                      combined = page_title + " " + h1_txt + " " + combined
+                      meta = analyze_metadata(combined)
+                  except Exception:
+                      mark_visited(url)
+                      return False
+
+              if meta["is_solution"] or not meta["subject"] or not matches_user_filter(meta):
+                  mark_visited(url)
+                  return False
+
+              short_tag = url_hash(url)[:5]
+              out_p = build_filepath(meta, short_tag)
+              ok = download_or_convert_to_pdf(url, out_p)
+              mark_visited(url)
+
+              if ok:
+                  with lock:
+                      saved_total += 1
+                      curr = saved_total
+                  if curr % 40 == 0:
+                      git_commit_and_push(f"Harvester batch: +{curr} new PDFs")
+              return ok
+
+          # 1. SITEMAP HARVESTER (Extracts thousands of post URLs from XML sitemaps)
+          def harvest_from_sitemaps(domain_url):
+              global saved_total
+              sitemap_entrypoints = [
+                  f"{domain_url}/sitemap_index.xml",
+                  f"{domain_url}/sitemap.xml",
+                  f"{domain_url}/wp-sitemap.xml",
+              ]
+              sub_sitemaps = []
+              article_urls = []
+
+              for sm_url in sitemap_entrypoints:
+                  try:
+                      r = requests.get(sm_url, headers=headers, timeout=20)
+                      if r.status_code == 200:
+                          locs = re.findall(r'https?://[^\s"\'__LT____GT__]+', r.text)
+                          for loc in locs:
+                              if ".xml" in loc.lower():
+                                  if "post" in loc.lower() or "page" in loc.lower() or "sujet" in loc.lower() or "sitemap" in loc.lower():
+                                      if loc not in sub_sitemaps:
+                                          sub_sitemaps.append(loc)
+                              elif loc.startswith(domain_url):
+                                  article_urls.append(loc)
+                          if sub_sitemaps or article_urls:
+                              break
+                  except Exception:
+                      pass
+
+              for sub_sm in sub_sitemaps[:40]:
+                  if saved_total not in range(0, max_to_save):
+                      break
+                  try:
+                      r = requests.get(sub_sm, headers=headers, timeout=20)
+                      if r.status_code == 200:
+                          locs = re.findall(r'https?://[^\s"\'__LT____GT__]+', r.text)
+                          for loc in locs:
+                              if loc.startswith(domain_url) and not loc.lower().endswith(".xml") and not is_visited(loc):
+                                  article_urls.append(loc)
+                  except Exception:
+                      pass
+
+              print(f"Discovered {len(article_urls)} unvisited sitemap URLs on {domain_url}")
+              with ThreadPoolExecutor(max_workers=10) as executor:
+                  futures = []
+                  for u in article_urls:
+                      if saved_total not in range(0, max_to_save):
+                          break
+                      if not is_visited(u):
+                          futures.append(executor.submit(process_single_article_url, u))
+                      if len(futures) == 200:
+                          for fut in as_completed(futures):
+                              pass
+                          futures = []
+
+          # 2. DEEP WORDPRESS API HARVESTER (Loops up to Page 200 instead of stopping at Page 5)
+          def harvest_wordpress_api_deep(domain_url):
+              global saved_total
+              for page_num in range(1, 200):
                   if saved_total not in range(0, max_to_save):
                       return
-                  api_u = f"{domain_url}/wp-json/wp/v2/posts?per_page=30&page={page_num}"
-                  print("Querying WP API:", api_u)
+                  api_u = f"{domain_url}/wp-json/wp/v2/posts?per_page=50&page={page_num}"
                   try:
                       r = requests.get(api_u, headers=headers, timeout=20)
                       if r.status_code != 200:
@@ -355,193 +505,95 @@ jobs:
                       posts = r.json()
                       if not isinstance(posts, list) or not posts:
                           break
+
+                      unvisited_posts = []
                       for p in posts:
-                          if saved_total not in range(0, max_to_save):
-                              return
                           link = p.get("link", "")
-                          title_html = p.get("title", {}).get("rendered", "")
-                          content_html = p.get("content", {}).get("rendered", "")
-                          combined = title_html + " " + urllib.parse.unquote(link)
-                          meta = analyze_metadata(combined)
+                          if link and not is_visited(link):
+                              title_html = p.get("title", {}).get("rendered", "")
+                              unvisited_posts.append((link, title_html))
 
-                          if meta["is_solution"] or not meta["subject"]:
-                              continue
-                          if not matches_user_filter(meta):
-                              continue
+                      if not unvisited_posts:
+                          continue
 
-                          short_id = str(p.get("id", ""))[-4:]
-                          fname = build_filename(meta, short_id)
-                          out_p = os.path.join("files", fname)
-
-                          # Check if direct PDF is already in content_html
-                          pdf_in_post = re.findall(r'https?://[^\s"\'\\]+?\.pdf', content_html, flags=re.IGNORECASE)
-                          got_it = False
-                          for pdf_u in pdf_in_post:
-                              if any(cw in pdf_u.lower() for cw in ["cor", "sol"]):
-                                  continue
-                              if download_or_convert_to_pdf(pdf_u, out_p):
-                                  saved_total += 1
-                                  got_it = True
-                                  break
-
-                          if not got_it and link:
-                              if download_or_convert_to_pdf(link, out_p):
-                                  saved_total += 1
-
-                          if saved_total != 0 and saved_total % 10 == 0:
-                              git_commit_and_push(f"Auto-harvested {saved_total} study PDFs")
-                  except Exception as e:
-                      print("WP API note:", e)
+                      print(f"{domain_url} WP API page {page_num}: processing {len(unvisited_posts)} new posts")
+                      with ThreadPoolExecutor(max_workers=10) as executor:
+                          futs = [
+                              executor.submit(process_single_article_url, lnk, ttl)
+                              for lnk, ttl in unvisited_posts
+                          ]
+                          for _ in as_completed(futs):
+                              pass
+                  except Exception:
                       break
 
-          def harvest_eddirasa_archives():
+          # 3. DEEP 3-LEVEL CRAWLER FOR DZEXAMS & DZMADRASSA
+          def harvest_dzexams_deep():
               global saved_total
-              eddirasa_streams = [
-                  ("se", "sciences"),
-                  ("mt", "mathematics"),
-                  ("tm", "tech-math"),
-                  ("ge", "management-economics"),
-                  ("lp", "literature-philosophy"),
-                  ("le", "foreign-languages"),
+              dz_levels = ["1ap", "2ap", "3ap", "4ap", "5ap", "1am", "2am", "3am", "4am", "1as", "2as", "3as"]
+              dz_subjs = [
+                  "mathematiques", "arabe", "physique", "sciences-naturelles",
+                  "francais", "anglais", "histoire-geographie", "sciences-islamiques",
+                  "education-civique", "philosophie", "informatique", "comptabilite"
               ]
-              # 1. Eddirasa BAC 2008..2026
-              for yr in range(2026, 2007, -1):
-                  if saved_total not in range(0, max_to_save):
-                      return
-                  for st_code, st_slug in eddirasa_streams:
+
+              for lv in dz_levels:
+                  if target_filter not in ["all", lv]:
+                      continue
+                  for sb in dz_subjs:
                       if saved_total not in range(0, max_to_save):
                           return
-                      hub_url = f"https://eddirasa.com/ens-sec/3as/bac-solutions/bac-{yr}/{st_slug}/"
+                      hub_url = f"https://www.dzexams.com/ar/{lv}/{sb}"
                       try:
                           r = requests.get(hub_url, headers=headers, timeout=15)
                           if r.status_code != 200:
                               continue
                           soup = BeautifulSoup(r.text, "html.parser")
+                          candidate_links = []
                           for a in soup.find_all("a"):
-                              if saved_total not in range(0, max_to_save):
-                                  return
                               href = a.get("href") or ""
                               txt = a.get_text(" ", strip=True)
-                              if not href or "تصحيح" in txt:
+                              if not href or href.startswith("#") or "تصحيح" in txt:
                                   continue
                               full_u = urllib.parse.urljoin(hub_url, href)
-                              meta = analyze_metadata(f"بكالوريا {yr} {txt} {full_u}")
-                              meta["archive_type"] = "bac"
-                              meta["year"] = str(yr)
-                              meta["stream"] = st_code
-                              if not meta["subject"] or not matches_user_filter(meta):
-                                  continue
-                              fname = build_filename(meta)
-                              if download_or_convert_to_pdf(full_u, os.path.join("files", fname)):
-                                  saved_total += 1
+                              if "dzexams.com/ar/" in full_u and not is_visited(full_u):
+                                  candidate_links.append((full_u, f"{lv} {sb} {txt}"))
+
+                          with ThreadPoolExecutor(max_workers=8) as executor:
+                              futs = [
+                                  executor.submit(process_single_article_url, u, hint)
+                                  for u, hint in candidate_links[:80]
+                              ]
+                              for _ in as_completed(futs):
+                                  pass
                       except Exception:
                           pass
 
-              # 2. Eddirasa BEM 2008..2026
-              for yr in range(2026, 2007, -1):
-                  if saved_total not in range(0, max_to_save):
-                      return
-                  bem_url = f"https://eddirasa.com/ens-cm/4am/bem-solutions/bem-{yr}/"
-                  try:
-                      r = requests.get(bem_url, headers=headers, timeout=15)
-                      if r.status_code != 200:
-                          continue
-                      soup = BeautifulSoup(r.text, "html.parser")
-                      for a in soup.find_all("a"):
-                          if saved_total not in range(0, max_to_save):
-                              return
-                          href = a.get("href") or ""
-                          txt = a.get_text(" ", strip=True)
-                          if not href or "تصحيح" in txt:
-                              continue
-                          full_u = urllib.parse.urljoin(bem_url, href)
-                          meta = analyze_metadata(f"شهادة التعليم المتوسط {yr} {txt} {full_u}")
-                          meta["archive_type"] = "bem"
-                          meta["year"] = str(yr)
-                          if not meta["subject"] or not matches_user_filter(meta):
-                              continue
-                          fname = build_filename(meta)
-                          if download_or_convert_to_pdf(full_u, os.path.join("files", fname)):
-                              saved_total += 1
-                  except Exception:
-                      pass
-
-          def harvest_deep_hub(hub_url):
-              global saved_total
-              print("Deep crawling hub:", hub_url)
-              try:
-                  r = requests.get(hub_url, headers=headers, timeout=20)
-                  if r.status_code != 200:
-                      return
-                  soup = BeautifulSoup(r.text, "html.parser")
-                  page_title = soup.title.string if soup.title else ""
-
-                  visited_sub = set()
-                  for a in soup.find_all("a"):
-                      if saved_total not in range(0, max_to_save):
-                          return
-                      href = a.get("href") or ""
-                      a_text = a.get_text(" ", strip=True)
-                      if not href or href.startswith("#") or href.startswith("javascript"):
-                          continue
-                      if any(skip in a_text for skip in ["التصحيح", "تصحيح", "منتدى", "حسابي", "اتصل"]):
-                          continue
-
-                      full_u = urllib.parse.urljoin(hub_url, href)
-                      if full_u in visited_sub:
-                          continue
-                      visited_sub.add(full_u)
-
-                      combined = page_title + " " + a_text + " " + urllib.parse.unquote(full_u)
-                      meta = analyze_metadata(combined)
-                      if not meta["subject"] or not matches_user_filter(meta):
-                          continue
-
-                      short_hash = hashlib.md5(full_u.encode()).hexdigest()[:4]
-                      fname = build_filename(meta, short_hash)
-                      if download_or_convert_to_pdf(full_u, os.path.join("files", fname)):
-                          saved_total += 1
-                          if saved_total % 10 == 0:
-                              git_commit_and_push(f"Auto-harvested {saved_total} study PDFs")
-              except Exception as e:
-                  print("Hub note:", hub_url, e)
-
-          # 1. Process any extra URL or links.txt first
+          # Run extra URL if provided
           extra_u = os.environ.get("EXTRA_URL", "").strip()
           if extra_u.startswith("http"):
-              harvest_deep_hub(extra_u)
+              process_single_article_url(extra_u)
 
-          if os.path.exists("links.txt"):
-              with open("links.txt", "r", encoding="utf-8") as f:
-                  for line in f:
-                      u = line.strip()
-                      if u.startswith("http"):
-                          harvest_deep_hub(u)
-
-          # 2. Run Pre-Programmed Harvesters for the 5 Algerian Study Websites
+          # Run across all selected websites
           if site_choice in ["all", "eddirasa"]:
-              harvest_eddirasa_archives()
-              harvest_wordpress_api("https://eddirasa.com")
+              harvest_wordpress_api_deep("https://eddirasa.com")
+              harvest_from_sitemaps("https://eddirasa.com")
 
           if site_choice in ["all", "bacdz"]:
-              harvest_wordpress_api("https://bacdz.net")
+              harvest_wordpress_api_deep("https://bacdz.net")
+              harvest_from_sitemaps("https://bacdz.net")
 
           if site_choice in ["all", "educationdz"]:
-              harvest_wordpress_api("https://educationdz.com")
-
-          if site_choice in ["all", "dzexams"]:
-              dzexams_levels = ["1ap", "2ap", "3ap", "4ap", "5ap", "1am", "2am", "3am", "4am", "1as", "2as", "3as"]
-              dzexams_subjs = ["mathematiques", "arabe", "physique", "sciences-naturelles", "francais", "anglais", "histoire-geographie", "sciences-islamiques"]
-              for lv in dzexams_levels:
-                  if target_filter not in ["all", lv]:
-                      continue
-                  for sb in dzexams_subjs:
-                      if saved_total not in range(0, max_to_save):
-                          break
-                      harvest_deep_hub(f"https://www.dzexams.com/ar/{lv}/{sb}")
+              harvest_wordpress_api_deep("https://educationdz.com")
+              harvest_from_sitemaps("https://educationdz.com")
 
           if site_choice in ["all", "dzmadrassa"]:
-              harvest_deep_hub("https://dzmadrassa.com/")
+              harvest_wordpress_api_deep("https://dzmadrassa.com")
+              harvest_from_sitemaps("https://dzmadrassa.com")
 
-          git_commit_and_push(f"Completed harvest run ({saved_total} new PDFs added)")
-          print("Finished! Total new PDFs added to files/:", saved_total)
+          if site_choice in ["all", "dzexams"]:
+              harvest_dzexams_deep()
+              harvest_from_sitemaps("https://www.dzexams.com")
+
+          git_commit_and_push(f"Completed deep harvest run (+{saved_total} new PDFs)")
+          print("Finished! Total new PDFs added in this run:", saved_total)
