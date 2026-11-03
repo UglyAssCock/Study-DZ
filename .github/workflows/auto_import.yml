@@ -17,9 +17,9 @@ on:
         required: true
         default: 'ALL'
       max_files_per_run:
-        description: 'Max new PDFs to save in this run (e.g. 500)'
+        description: 'Max new PDFs to save in this run (e.g. 400)'
         required: true
-        default: '500'
+        default: '400'
       extra_url:
         description: 'Optional: Paste any specific URL here'
         required: false
@@ -39,7 +39,7 @@ jobs:
       - name: Install Scraper Libraries
         run: pip install requests beautifulsoup4 pillow lxml
 
-      - name: Deep Crawl All 5 Sites with Persistent Memory
+      - name: Clean Existing Duplicates and Harvest New Unique PDFs
         env:
           SITE_CHOICE: ${{ github.event.inputs.site_choice }}
           TARGET_FILTER: ${{ github.event.inputs.target_filter }}
@@ -50,7 +50,7 @@ jobs:
           import os
           import re
           import io
-          import time
+          import shutil
           import hashlib
           import threading
           import urllib.parse
@@ -62,7 +62,10 @@ jobs:
 
           os.makedirs("files", exist_ok=True)
           visited_file = "files/visited_hashes.txt"
+          content_hashes_file = "files/content_hashes.txt"
+
           visited_hashes = set()
+          content_hashes = set()
 
           if os.path.exists(visited_file):
               with open(visited_file, "r", encoding="utf-8") as vf:
@@ -71,22 +74,116 @@ jobs:
                       if h:
                           visited_hashes.add(h)
 
-          print("Loaded previously visited URLs count:", len(visited_hashes))
+          subprocess.run(["git", "config", "user.name", "StudyDZ-Harvester"], check=False)
+          subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
 
+          # =====================================================================
+          # STEP 1: AUTOMATIC DEDUPLICATOR (Cleans all existing duplicates in files/)
+          # =====================================================================
+          print("Scanning files/ for duplicate PDFs and normalizing names...")
+          seen_md5 = set()
+          seen_canonical_names = set()
+          removed_duplicates = 0
+
+          all_pdf_paths = []
+          for root, _, fnames in os.walk("files"):
+              for fn in sorted(fnames):
+                  if fn.lower().endswith(".pdf"):
+                      all_pdf_paths.append(os.path.join(root, fn))
+
+          # Sort so subfolder files and cleaner names come first
+          all_pdf_paths.sort(key=lambda p: (p.count("/"), len(p)))
+
+          for pdf_path in all_pdf_paths:
+              if not os.path.exists(pdf_path):
+                  continue
+              try:
+                  fsize = os.path.getsize(pdf_path)
+                  if fsize in range(0, 1500):
+                      os.remove(pdf_path)
+                      removed_duplicates += 1
+                      continue
+
+                  with open(pdf_path, "rb") as pf:
+                      raw_bytes = pf.read()
+
+                  if raw_bytes[:4] != b"%PDF":
+                      os.remove(pdf_path)
+                      removed_duplicates += 1
+                      continue
+
+                  file_md5 = hashlib.md5(raw_bytes).hexdigest()
+                  fname = os.path.basename(pdf_path).lower()
+
+                  # Delete if it's an old solution file (_sol / _cor)
+                  if any(k in fname for k in ["_sol.", "_cor.", "_corrige.", "_sujet_sol"]):
+                      os.remove(pdf_path)
+                      removed_duplicates += 1
+                      continue
+
+                  # Normalize official archive filenames (strip trailing hash from bac/bem/5eme)
+                  # e.g. bac_2024_math_se_a1b2c.pdf -> bac_2024_math_se.pdf
+                  archive_match = re.match(
+                      r'^(bac_\d{4}_[a-z0-9]+_[a-z0-9]+|bem_\d{4}_[a-z0-9]+|5eme_\d{4}_[a-z0-9]+?)(?:_[a-f0-9]{4,6}|_sujet)?\.pdf$',
+                      fname
+                  )
+                  if archive_match:
+                      clean_base = archive_match.group(1) + ".pdf"
+                      prefix_folder = clean_base.split("_")[0]
+                      target_dir = os.path.join("files", prefix_folder)
+                      os.makedirs(target_dir, exist_ok=True)
+                      canonical_path = os.path.join(target_dir, clean_base)
+                  else:
+                      clean_base = fname
+                      canonical_path = pdf_path
+
+                  # Check if exact binary content (MD5) or canonical exam name was already seen
+                  if file_md5 in seen_md5 or clean_base in seen_canonical_names:
+                      os.remove(pdf_path)
+                      removed_duplicates += 1
+                      continue
+
+                  seen_md5.add(file_md5)
+                  seen_canonical_names.add(clean_base)
+
+                  # Move to canonical path if needed
+                  if os.path.abspath(pdf_path) != os.path.abspath(canonical_path):
+                      if os.path.exists(canonical_path):
+                          os.remove(pdf_path)
+                          removed_duplicates += 1
+                      else:
+                          shutil.move(pdf_path, canonical_path)
+              except Exception as e:
+                  print("Cleanup note on", pdf_path, e)
+
+          content_hashes = set(seen_md5)
+          with open(content_hashes_file, "w", encoding="utf-8") as cf:
+              for h in sorted(content_hashes):
+                  cf.write(h + "\n")
+
+          print(f"Deduplication complete! Removed {removed_duplicates} duplicate/invalid files. Unique PDFs kept: {len(seen_md5)}")
+
+          if removed_duplicates != 0:
+              subprocess.run(["git", "add", "-A", "files/"], check=False)
+              res = subprocess.run(["git", "diff", "--staged", "--quiet"])
+              if res.returncode != 0:
+                  subprocess.run(["git", "commit", "-m", f"Cleaned {removed_duplicates} duplicate PDFs"], check=False)
+                  subprocess.run(["git", "push"], check=False)
+
+          # =====================================================================
+          # STEP 2: HARVEST NEW UNIQUE FILES (With Content MD5 Deduplication)
+          # =====================================================================
           headers = {
               "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
           }
-
-          subprocess.run(["git", "config", "user.name", "StudyDZ-Harvester"], check=False)
-          subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
 
           lock = threading.Lock()
           saved_total = 0
 
           try:
-              max_to_save = int(os.environ.get("MAX_FILES", "500").strip() or "500")
+              max_to_save = int(os.environ.get("MAX_FILES", "400").strip() or "400")
           except Exception:
-              max_to_save = 500
+              max_to_save = 400
 
           site_choice = (os.environ.get("SITE_CHOICE", "ALL").strip() or "ALL").lower()
           target_filter = (os.environ.get("TARGET_FILTER", "ALL").strip() or "ALL").lower()
@@ -107,10 +204,29 @@ jobs:
                       with open(visited_file, "a", encoding="utf-8") as vf:
                           vf.write(h + "\n")
 
+          def register_unique_pdf_bytes(raw_bytes, out_filepath):
+              if len(raw_bytes) in range(0, 1500) or raw_bytes[:4] != b"%PDF":
+                  return False
+              md5_hex = hashlib.md5(raw_bytes).hexdigest()
+              base_name = os.path.basename(out_filepath).lower()
+              with lock:
+                  if md5_hex in content_hashes or base_name in seen_canonical_names:
+                      return False
+                  if os.path.exists(out_filepath):
+                      return False
+                  with open(out_filepath, "wb") as f:
+                      f.write(raw_bytes)
+                  content_hashes.add(md5_hex)
+                  seen_canonical_names.add(base_name)
+                  with open(content_hashes_file, "a", encoding="utf-8") as cf:
+                      cf.write(md5_hex + "\n")
+              print("Saved unique PDF:", out_filepath)
+              return True
+
           def git_commit_and_push(msg):
               with lock:
                   subprocess.run(["git", "pull", "--rebase", "--autostash"], check=False)
-                  subprocess.run(["git", "add", "files/"], check=False)
+                  subprocess.run(["git", "add", "-A", "files/"], check=False)
                   res = subprocess.run(["git", "diff", "--staged", "--quiet"])
                   if res.returncode != 0:
                       subprocess.run(["git", "commit", "-m", msg], check=False)
@@ -243,14 +359,15 @@ jobs:
 
           def build_filepath(meta, unique_tag=""):
               subj = meta["subject"] or "math"
-              sfx = f"_{unique_tag}" if unique_tag else ""
+              # Official archive exams NEVER get random hash tags so only 1 file per year/subject/stream is saved
               if meta["archive_type"] and meta["year"]:
                   folder = os.path.join("files", meta["archive_type"])
                   os.makedirs(folder, exist_ok=True)
                   if meta["archive_type"] == "bac":
-                      return os.path.join(folder, f"bac_{meta['year']}_{subj}_{meta['stream']}{sfx}.pdf")
-                  return os.path.join(folder, f"{meta['archive_type']}_{meta['year']}_{subj}{sfx}.pdf")
+                      return os.path.join(folder, f"bac_{meta['year']}_{subj}_{meta['stream']}.pdf")
+                  return os.path.join(folder, f"{meta['archive_type']}_{meta['year']}_{subj}.pdf")
 
+              sfx = f"_{unique_tag}" if unique_tag else ""
               folder = os.path.join("files", meta["level"])
               os.makedirs(folder, exist_ok=True)
               if meta["category"] == "book":
@@ -259,52 +376,37 @@ jobs:
               return os.path.join(folder, f"{meta['level']}_{subj}_{meta['trimester']}_{meta['category']}{sfx}.pdf")
 
           def download_or_convert_to_pdf(page_url, out_filepath):
-              if os.path.exists(out_filepath) and os.path.getsize(out_filepath) not in range(0, 1500):
-                  return False
+              base_name = os.path.basename(out_filepath).lower()
+              with lock:
+                  if base_name in seen_canonical_names or os.path.exists(out_filepath):
+                      return False
 
               try:
                   parsed_q = urllib.parse.parse_qs(urllib.parse.urlparse(page_url).query)
                   if "file" in parsed_q:
                       direct_u = urllib.parse.urljoin(page_url, parsed_q["file"][0])
                       pr = requests.get(direct_u, headers=headers, timeout=20)
-                      if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                          with lock:
-                              with open(out_filepath, "wb") as f:
-                                  f.write(pr.content)
-                          print("Saved viewer PDF:", out_filepath)
+                      if pr.status_code == 200 and register_unique_pdf_bytes(pr.content, out_filepath):
                           return True
 
                   if page_url.lower().split("?")[0].endswith(".pdf"):
                       pr = requests.get(page_url, headers=headers, timeout=20)
-                      if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                          with lock:
-                              with open(out_filepath, "wb") as f:
-                                  f.write(pr.content)
-                          print("Saved direct PDF:", out_filepath)
+                      if pr.status_code == 200 and register_unique_pdf_bytes(pr.content, out_filepath):
                           return True
 
                   r = requests.get(page_url, headers=headers, timeout=20)
                   if r.status_code != 200:
                       return False
                   if r.content[:4] == b"%PDF":
-                      with lock:
-                          with open(out_filepath, "wb") as f:
-                              f.write(r.content)
-                      print("Saved binary PDF:", out_filepath)
-                      return True
+                      return register_unique_pdf_bytes(r.content, out_filepath)
 
-                  # Search raw HTML for any direct .pdf URLs
                   raw_pdf_matches = re.findall(r'https?://[^\s"\'\\]+?\.pdf', r.text, flags=re.IGNORECASE)
                   for pdf_candidate in raw_pdf_matches:
                       lower_cand = pdf_candidate.lower()
                       if any(cor_w in lower_cand for cor_w in ["_cor", "-cor", "_sol", "-sol"]):
                           continue
                       pr = requests.get(pdf_candidate, headers=headers, timeout=20)
-                      if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                          with lock:
-                              with open(out_filepath, "wb") as f:
-                                  f.write(pr.content)
-                          print("Saved HTML PDF:", out_filepath)
+                      if pr.status_code == 200 and register_unique_pdf_bytes(pr.content, out_filepath):
                           return True
 
                   soup = BeautifulSoup(r.text, "html.parser")
@@ -323,20 +425,12 @@ jobs:
                       if "file" in sub_q:
                           pdf_u = urllib.parse.urljoin(full_link, sub_q["file"][0])
                           pr = requests.get(pdf_u, headers=headers, timeout=20)
-                          if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                              with lock:
-                                  with open(out_filepath, "wb") as f:
-                                      f.write(pr.content)
-                              print("Saved iframe viewer PDF:", out_filepath)
+                          if pr.status_code == 200 and register_unique_pdf_bytes(pr.content, out_filepath):
                               return True
 
                       if ".pdf" in full_link.lower() and "docs.google.com" not in full_link.lower():
                           pr = requests.get(full_link, headers=headers, timeout=20)
-                          if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                              with lock:
-                                  with open(out_filepath, "wb") as f:
-                                      f.write(pr.content)
-                              print("Saved linked PDF:", out_filepath)
+                          if pr.status_code == 200 and register_unique_pdf_bytes(pr.content, out_filepath):
                               return True
 
                       gd_match = (
@@ -347,14 +441,9 @@ jobs:
                           fid = gd_match.group(1)
                           dl_u = f"https://drive.google.com/uc?export=download&id={fid}"
                           pr = requests.get(dl_u, headers=headers, timeout=20)
-                          if pr.status_code == 200 and pr.content[:4] == b"%PDF":
-                              with lock:
-                                  with open(out_filepath, "wb") as f:
-                                      f.write(pr.content)
-                              print("Saved Google Drive PDF:", out_filepath)
+                          if pr.status_code == 200 and register_unique_pdf_bytes(pr.content, out_filepath):
                               return True
 
-                  # Fallback: Convert scanned exam images inside the page into a single clean PDF
                   content_box = (
                       soup.find("div", class_=re.compile(r"entry-content|post-content|article|main|sujet"))
                       or soup
@@ -379,16 +468,15 @@ jobs:
                           pass
 
                   if pil_imgs:
-                      with lock:
-                          pil_imgs[0].save(
-                              out_filepath,
-                              "PDF",
-                              resolution=100.0,
-                              save_all=True,
-                              append_images=pil_imgs[1:],
-                          )
-                      print("Converted exam images to PDF:", out_filepath)
-                      return True
+                      buf = io.BytesIO()
+                      pil_imgs[0].save(
+                          buf,
+                          "PDF",
+                          resolution=100.0,
+                          save_all=True,
+                          append_images=pil_imgs[1:],
+                      )
+                      return register_unique_pdf_bytes(buf.getvalue(), out_filepath)
 
               except Exception:
                   pass
@@ -404,7 +492,6 @@ jobs:
               combined = title_hint + " " + urllib.parse.unquote(url)
               meta = analyze_metadata(combined)
 
-              # If subject wasn't obvious from URL alone, fetch title quickly
               if not meta["subject"]:
                   try:
                       r = requests.get(url, headers=headers, timeout=15)
@@ -434,10 +521,9 @@ jobs:
                       saved_total += 1
                       curr = saved_total
                   if curr % 40 == 0:
-                      git_commit_and_push(f"Harvester batch: +{curr} new PDFs")
+                      git_commit_and_push(f"Harvester batch: +{curr} unique PDFs")
               return ok
 
-          # 1. SITEMAP HARVESTER (Extracts thousands of post URLs from XML sitemaps)
           def harvest_from_sitemaps(domain_url):
               global saved_total
               sitemap_entrypoints = [
@@ -455,7 +541,7 @@ jobs:
                           locs = re.findall(r'https?://[^\s"\'__LT____GT__]+', r.text)
                           for loc in locs:
                               if ".xml" in loc.lower():
-                                  if "post" in loc.lower() or "page" in loc.lower() or "sujet" in loc.lower() or "sitemap" in loc.lower():
+                                  if any(k in loc.lower() for k in ["post", "page", "sujet", "sitemap"]):
                                       if loc not in sub_sitemaps:
                                           sub_sitemaps.append(loc)
                               elif loc.startswith(domain_url):
@@ -487,11 +573,10 @@ jobs:
                       if not is_visited(u):
                           futures.append(executor.submit(process_single_article_url, u))
                       if len(futures) == 200:
-                          for fut in as_completed(futures):
+                          for _ in as_completed(futures):
                               pass
                           futures = []
 
-          # 2. DEEP WORDPRESS API HARVESTER (Loops up to Page 200 instead of stopping at Page 5)
           def harvest_wordpress_api_deep(domain_url):
               global saved_total
               for page_num in range(1, 200):
@@ -516,7 +601,6 @@ jobs:
                       if not unvisited_posts:
                           continue
 
-                      print(f"{domain_url} WP API page {page_num}: processing {len(unvisited_posts)} new posts")
                       with ThreadPoolExecutor(max_workers=10) as executor:
                           futs = [
                               executor.submit(process_single_article_url, lnk, ttl)
@@ -527,7 +611,6 @@ jobs:
                   except Exception:
                       break
 
-          # 3. DEEP 3-LEVEL CRAWLER FOR DZEXAMS & DZMADRASSA
           def harvest_dzexams_deep():
               global saved_total
               dz_levels = ["1ap", "2ap", "3ap", "4ap", "5ap", "1am", "2am", "3am", "4am", "1as", "2as", "3as"]
@@ -569,12 +652,10 @@ jobs:
                       except Exception:
                           pass
 
-          # Run extra URL if provided
           extra_u = os.environ.get("EXTRA_URL", "").strip()
           if extra_u.startswith("http"):
               process_single_article_url(extra_u)
 
-          # Run across all selected websites
           if site_choice in ["all", "eddirasa"]:
               harvest_wordpress_api_deep("https://eddirasa.com")
               harvest_from_sitemaps("https://eddirasa.com")
@@ -595,5 +676,5 @@ jobs:
               harvest_dzexams_deep()
               harvest_from_sitemaps("https://www.dzexams.com")
 
-          git_commit_and_push(f"Completed deep harvest run (+{saved_total} new PDFs)")
-          print("Finished! Total new PDFs added in this run:", saved_total)
+          git_commit_and_push(f"Completed deduplicated harvest (+{saved_total} unique PDFs)")
+          print("Finished! Total new unique PDFs added:", saved_total)
