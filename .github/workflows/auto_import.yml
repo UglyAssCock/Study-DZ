@@ -1,0 +1,404 @@
+name: paste-link-auto-import
+
+on:
+  push:
+    paths:
+      - 'links.txt'
+  workflow_dispatch:
+    inputs:
+      website_url:
+        description: 'Paste ANY exam/lesson webpage URL here (Eddirasa, BacDZ, DzExams, Ency-Education, etc.)'
+        required: true
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  auto-import-from-link:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Scraper Libraries
+        run: pip install requests beautifulsoup4 pillow
+
+      - name: Auto-Detect, Download, Rename, and Save to files/
+        env:
+          INPUT_URL: ${{ github.event.inputs.website_url }}
+        shell: python
+        run: |
+          import os
+          import re
+          import io
+          import hashlib
+          import urllib.parse
+          import subprocess
+          import requests
+          from bs4 import BeautifulSoup
+          from PIL import Image
+
+          os.makedirs("files", exist_ok=True)
+
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+          }
+
+          subprocess.run(["git", "config", "user.name", "StudyDZ-AutoBot"], check=False)
+          subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
+
+          level_rules = [
+              ("1ap", ["الأولى ابتدائي", "اولى ابتدائي", "1 ابتدائي", "1ap"]),
+              ("2ap", ["الثانية ابتدائي", "ثانية ابتدائي", "2 ابتدائي", "2ap"]),
+              ("3ap", ["الثالثة ابتدائي", "ثالثة ابتدائي", "3 ابتدائي", "3ap"]),
+              ("4ap", ["الرابعة ابتدائي", "رابعة ابتدائي", "4 ابتدائي", "4ap"]),
+              ("5ap", ["الخامسة ابتدائي", "خامسة ابتدائي", "5 ابتدائي", "5ap"]),
+              ("1am", ["الأولى متوسط", "اولى متوسط", "1 متوسط", "1am"]),
+              ("2am", ["الثانية متوسط", "ثانية متوسط", "2 متوسط", "2am"]),
+              ("3am", ["الثالثة متوسط", "ثالثة متوسط", "3 متوسط", "3am"]),
+              ("4am", ["الرابعة متوسط", "رابعة متوسط", "4 متوسط", "4am"]),
+              ("1as", ["الأولى ثانوي", "اولى ثانوي", "1 ثانوي", "1as"]),
+              ("2as", ["الثانية ثانوي", "ثانية ثانوي", "2 ثانوي", "2as"]),
+              ("3as", ["الثالثة ثانوي", "ثالثة ثانوي", "3 ثانوي", "3as"]),
+          ]
+
+          subject_rules = [
+              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية", "snv", "sci"]),
+              ("physics", ["العلوم الفيزيائية", "الفيزياء", "فيزياء", "phys"]),
+              ("math", ["الرياضيات", "رياضيات", "math"]),
+              ("arabic", ["اللغة العربية", "الأدب العربي", "عربية", "arabe"]),
+              ("french", ["اللغة الفرنسية", "فرنسية", "francais", "french"]),
+              ("english", ["اللغة الإنجليزية", "اللغة الانجليزية", "إنجليزية", "انجليزية", "anglais", "english"]),
+              ("hisgeo", ["التاريخ والجغرافيا", "التاريخ و الجغرافيا", "تاريخ", "جغرافيا", "histoire", "hisgeo"]),
+              ("islamic", ["العلوم الإسلامية", "التربية الإسلامية", "التربية الاسلامية", "شريعة", "islamia"]),
+              ("philo", ["الفلسفة", "فلسفة", "philo"]),
+              ("civics", ["التربية المدنية", "مدنية", "civique"]),
+              ("cs", ["الإعلام الآلي", "الاعلام الالي", "معلوماتية", "informatique"]),
+              ("accounting", ["التسيير المحاسبي", "محاسبة", "comptabilite", "gestion"]),
+              ("economy", ["الاقتصاد والمناجمنت", "الإقتصاد والمناجمنت", "اقتصاد", "economie"]),
+              ("law", ["القانون", "القانــــون", "droit"]),
+              ("engineering", ["الهندسة", "هندسة", "تكنولوجيا", "genie"]),
+              ("amazigh", ["اللغة الأمازيغية", "أمازيغية", "امازيغية", "tamazight"]),
+              ("third_lang", ["اللغة الإيطالية", "اللغة الإسبانية", "اللغة الألمانية", "اسبانية", "المانية", "ايطالية"]),
+              ("art", ["التربية التشكيلية", "التربية الموسيقية", "تشكيلية", "موسيقية"]),
+          ]
+
+          stream_rules = [
+              ("lp", ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "اداب و فلسفة", "آداب-وفلسفة", "lp"]),
+              ("se", ["علوم تجريبية", "العلوم التجريبية", "علوم-تجريبية", "se"]),
+              ("tm", ["تقني رياضي", "التقني الرياضي", "تقني-رياضي", "tm"]),
+              ("mt", ["شعبة رياضيات", "شعبة الرياضيات", "رياضيات", "mt"]),
+              ("ge", ["تسيير واقتصاد", "تسيير و اقتصاد", "تسيير-واقتصاد", "ge"]),
+              ("le", ["لغات أجنبية", "لغات اجنبية", "لغات-أجنبية", "le"]),
+          ]
+
+          def analyze_arabic_metadata(text):
+              t = text.lower()
+
+              # Check if solution/correction (skip for official archive exams)
+              is_solution = any(w in t for w in ["التصحيح", "تصحيح", "الحل النموذجي", "مع الحل", "corrige", "_sol", "-sol"])
+
+              # Detect Year (2008 to 2026)
+              ym = re.search(r'(200[89]|201[0-9]|202[0-6])', t)
+              year = ym.group(1) if ym else None
+
+              # Detect Official Exam (BAC / BEM / 5eme)
+              archive_type = None
+              if any(w in t for w in ["بكالوريا", "البكالوريا", "bac"]):
+                  archive_type = "bac"
+              elif any(w in t for w in ["شهادة التعليم المتوسط", "البيام", "بيام", "bem"]):
+                  archive_type = "bem"
+              elif any(w in t for w in ["شهادة التعليم الابتدائي", "شهادة التعليم الإبتدائي", "السانكيام", "5eme", "cinquieme"]):
+                  archive_type = "5eme"
+
+              # Detect Level
+              level = "3as"
+              for code, keys in level_rules:
+                  if any(k in t for k in keys):
+                      level = code
+                      break
+
+              # Detect Subject
+              subject = None
+              for code, keys in subject_rules:
+                  if any(k in t for k in keys):
+                      subject = code
+                      break
+
+              # Detect Stream
+              stream = "se"
+              for code, keys in stream_rules:
+                  if any(k in t for k in keys):
+                      if code == "mt" and "علوم" in t:
+                          continue
+                      stream = code
+                      break
+
+              # Detect Trimester
+              trimester = "t1"
+              if any(w in t for w in ["الفصل الثاني", "الثلاثي الثاني", "ف2", "t2", "2eme trimestre"]):
+                  trimester = "t2"
+              elif any(w in t for w in ["الفصل الثالث", "الثلاثي الثالث", "ف3", "t3", "3eme trimestre"]):
+                  trimester = "t3"
+
+              # Detect Folder Category
+              category = "exam"
+              if any(w in t for w in ["كتاب", "الكتاب المدرسي", "livre", "book"]):
+                  category = "book"
+              elif any(w in t for w in ["ملخص", "ملخصات", "resume"]):
+                  category = "resume"
+              elif any(w in t for w in ["فرض", "فروض", "devoir", "test"]):
+                  category = "test"
+              elif any(w in t for w in ["درس", "دروس", "cours", "lesson"]):
+                  category = "lesson"
+
+              return {
+                  "is_solution": is_solution,
+                  "year": year,
+                  "archive_type": archive_type,
+                  "level": level,
+                  "subject": subject or "math",
+                  "stream": stream,
+                  "trimester": trimester,
+                  "category": category,
+              }
+
+          def build_filename(meta, index_suffix=""):
+              sfx = f"_{index_suffix}" if index_suffix else ""
+              if meta["archive_type"] and meta["year"]:
+                  if meta["archive_type"] == "bac":
+                      return f"bac_{meta['year']}_{meta['subject']}_{meta['stream']}{sfx}.pdf"
+                  return f"{meta['archive_type']}_{meta['year']}_{meta['subject']}{sfx}.pdf"
+
+              if meta["category"] == "book":
+                  return f"{meta['level']}_{meta['subject']}_book{sfx}.pdf"
+
+              return f"{meta['level']}_{meta['subject']}_{meta['trimester']}_{meta['category']}{sfx}.pdf"
+
+          def extract_pdf_from_page(page_url, out_filepath):
+              if os.path.exists(out_filepath) and os.path.getsize(out_filepath) not in range(0, 1000):
+                  print("Already saved:", out_filepath)
+                  return True
+
+              try:
+                  # 1. Check if URL is Eddirasa viewer (?file=/uploads/...pdf)
+                  parsed_q = urllib.parse.parse_qs(urllib.parse.urlparse(page_url).query)
+                  if "file" in parsed_q:
+                      direct_pdf_url = urllib.parse.urljoin(page_url, parsed_q["file"][0])
+                      pr = requests.get(direct_pdf_url, headers=headers, timeout=30)
+                      if pr.status_code == 200 and pr.content[:4] == b"%PDF":
+                          with open(out_filepath, "wb") as f:
+                              f.write(pr.content)
+                          print("Saved Eddirasa viewer PDF:", out_filepath)
+                          return True
+
+                  # 2. Check if URL itself is a direct PDF
+                  if page_url.lower().split("?")[0].endswith(".pdf"):
+                      pr = requests.get(page_url, headers=headers, timeout=30)
+                      if pr.status_code == 200 and pr.content[:4] == b"%PDF":
+                          with open(out_filepath, "wb") as f:
+                              f.write(pr.content)
+                          print("Saved direct PDF:", out_filepath)
+                          return True
+
+                  r = requests.get(page_url, headers=headers, timeout=25)
+                  if r.status_code != 200:
+                      return False
+                  if r.content[:4] == b"%PDF":
+                      with open(out_filepath, "wb") as f:
+                          f.write(r.content)
+                      print("Saved direct stream PDF:", out_filepath)
+                      return True
+
+                  soup = BeautifulSoup(r.text, "html.parser")
+
+                  # 3. Look for embedded PDFs, Eddirasa viewer links, or Google Drive links inside the page
+                  for tag in soup.find_all(["a", "iframe", "embed", "object"]):
+                      raw_link = tag.get("href") or tag.get("src") or tag.get("data") or ""
+                      if not raw_link:
+                          continue
+                      full_link = urllib.parse.urljoin(page_url, raw_link)
+
+                      # Eddirasa viewer inside iframe/link
+                      sub_q = urllib.parse.parse_qs(urllib.parse.urlparse(full_link).query)
+                      if "file" in sub_q:
+                          pdf_u = urllib.parse.urljoin(full_link, sub_q["file"][0])
+                          pr = requests.get(pdf_u, headers=headers, timeout=30)
+                          if pr.status_code == 200 and pr.content[:4] == b"%PDF":
+                              with open(out_filepath, "wb") as f:
+                                  f.write(pr.content)
+                              print("Saved embedded viewer PDF:", out_filepath)
+                              return True
+
+                      # Direct .pdf link
+                      if ".pdf" in full_link.lower() and "docs.google.com" not in full_link.lower():
+                          pr = requests.get(full_link, headers=headers, timeout=30)
+                          if pr.status_code == 200 and pr.content[:4] == b"%PDF":
+                              with open(out_filepath, "wb") as f:
+                                  f.write(pr.content)
+                              print("Saved page PDF link:", out_filepath)
+                              return True
+
+                      # Google Drive link
+                      gd_match = (
+                          re.search(r'/file/d/([a-zA-Z0-9_-]+)', full_link)
+                          or re.search(r'[?&]id=([a-zA-Z0-9_-]+)', full_link)
+                      )
+                      if gd_match:
+                          fid = gd_match.group(1)
+                          dl_u = f"https://drive.google.com/uc?export=download&id={fid}"
+                          pr = requests.get(dl_u, headers=headers, timeout=30)
+                          if pr.status_code == 200 and pr.content[:4] == b"%PDF":
+                              with open(out_filepath, "wb") as f:
+                                  f.write(pr.content)
+                              print("Saved Google Drive PDF:", out_filepath)
+                              return True
+
+                  # 4. Fallback: Convert scanned exam images inside the page into a single PDF
+                  content_box = (
+                      soup.find("div", class_=re.compile(r"entry-content|post-content|article|main"))
+                      or soup
+                  )
+                  pil_imgs = []
+                  for img in content_box.find_all("img"):
+                      src = img.get("data-src") or img.get("src") or ""
+                      if not src or any(
+                          skip in src.lower()
+                          for skip in ["logo", "avatar", "icon", "gravatar", "emoji", "banner", "ads"]
+                      ):
+                          continue
+                      src = urllib.parse.urljoin(page_url, src)
+                      try:
+                          ir = requests.get(src, headers=headers, timeout=20)
+                          if ir.status_code == 200:
+                              im = Image.open(io.BytesIO(ir.content)).convert("RGB")
+                              w, h = im.size
+                              if w not in range(0, 350) and h not in range(0, 350):
+                                  pil_imgs.append(im)
+                      except Exception:
+                          pass
+
+                  if pil_imgs:
+                      pil_imgs[0].save(
+                          out_filepath,
+                          "PDF",
+                          resolution=100.0,
+                          save_all=True,
+                          append_images=pil_imgs[1:],
+                      )
+                      print("Converted page images to PDF:", out_filepath)
+                      return True
+
+              except Exception as e:
+                  print("Error extracting from:", page_url, e)
+              return False
+
+          def smart_scrape_url(url):
+              print("==========================================")
+              print("Processing URL:", url)
+              try:
+                  r = requests.get(url, headers=headers, timeout=25)
+                  if r.status_code != 200:
+                      print("HTTP status:", r.status_code)
+                      return 0
+
+                  # If it's already a direct PDF or Eddirasa viewer link
+                  if r.content[:4] == b"%PDF" or "file=" in url:
+                      meta = analyze_arabic_metadata(urllib.parse.unquote(url))
+                      short_hash = hashlib.md5(url.encode()).hexdigest()[:4]
+                      fname = build_filename(meta, short_hash)
+                      if extract_pdf_from_page(url, os.path.join("files", fname)):
+                          return 1
+                      return 0
+
+                  soup = BeautifulSoup(r.text, "html.parser")
+                  page_title = soup.title.string if soup.title else ""
+                  h1_text = " ".join([h.get_text(" ", strip=True) for h in soup.find_all(["h1", "h2"])])
+                  base_context = page_title + " " + h1_text + " " + urllib.parse.unquote(url)
+                  base_meta = analyze_arabic_metadata(base_context)
+
+                  saved = 0
+
+                  # CASE A: Page has a table of subjects (like bacdz.net or eddirasa.com exam tables)
+                  table_rows = soup.find_all("tr")
+                  if table_rows:
+                      for row in table_rows:
+                          row_text = row.get_text(" ", strip=True)
+                          row_meta = analyze_arabic_metadata(base_context + " " + row_text)
+                          for a in row.find_all("a"):
+                              href = a.get("href")
+                              if not href:
+                                  continue
+                              a_text = a.get_text(" ", strip=True)
+                              # Skip solution links for BAC/BEM/5eme (only grab الموضوع)
+                              if any(k in a_text for k in ["تصحيح", "التصحيح", "حل", "الحل", " الإجابة"]):
+                                  continue
+                              if "موضوع" in a_text or "الموضوع" in a_text or ".pdf" in href.lower() or "file=" in href:
+                                  full_sub = urllib.parse.urljoin(url, href)
+                                  fname = build_filename(row_meta)
+                                  if extract_pdf_from_page(full_sub, os.path.join("files", fname)):
+                                      saved += 1
+
+                  if saved != 0:
+                      return saved
+
+                  # CASE B: Page has a list of exam/lesson links (like DzExams or Ency-Education subject pages)
+                  sub_links_tried = 0
+                  for a in soup.find_all("a"):
+                      href = a.get("href") or ""
+                      a_text = a.get_text(" ", strip=True)
+                      if not href or len(a_text) in range(0, 5):
+                          continue
+                      if any(k in a_text for k in ["تصحيح", "التصحيح", "حل النموذجي"]):
+                          continue
+                      if any(k in a_text for k in ["موضوع", "اختبار", "إختبار", "فرض", "ملخص", "درس", "تحميل"]):
+                          full_sub = urllib.parse.urljoin(url, href)
+                          link_meta = analyze_arabic_metadata(base_context + " " + a_text)
+                          short_id = str(sub_links_tried + 1)
+                          fname = build_filename(link_meta, short_id)
+                          if extract_pdf_from_page(full_sub, os.path.join("files", fname)):
+                              saved += 1
+                              sub_links_tried += 1
+                              if sub_links_tried == 15:
+                                  break
+
+                  if saved != 0:
+                      return saved
+
+                  # CASE C: Single exam/lesson page
+                  short_hash = hashlib.md5(url.encode()).hexdigest()[:4]
+                  fname = build_filename(base_meta, short_hash)
+                  if extract_pdf_from_page(url, os.path.join("files", fname)):
+                      return 1
+
+              except Exception as e:
+                  print("Error on URL:", url, e)
+              return 0
+
+          urls_to_process = []
+          inp = os.environ.get("INPUT_URL", "").strip()
+          if inp:
+              for part in re.split(r'[\s,]+', inp):
+                  if part.startswith("http"):
+                      urls_to_process.append(part.strip())
+
+          if os.path.exists("links.txt"):
+              with open("links.txt", "r", encoding="utf-8") as f:
+                  for line in f:
+                      clean = line.strip()
+                      if clean.startswith("http") and clean not in urls_to_process:
+                          urls_to_process.append(clean)
+
+          total = 0
+          for u in urls_to_process:
+              c = smart_scrape_url(u)
+              total += c
+              if c != 0:
+                  subprocess.run(["git", "add", "files/"], check=False)
+                  res = subprocess.run(["git", "diff", "--staged", "--quiet"])
+                  if res.returncode != 0:
+                      subprocess.run(["git", "commit", "-m", f"Auto-imported {c} PDFs from link"], check=False)
+                      subprocess.run(["git", "push"], check=False)
+
+          print("Done! Total files imported and renamed automatically:", total)
