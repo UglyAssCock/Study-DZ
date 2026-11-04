@@ -1163,11 +1163,21 @@ jobs:
                 if (f['is_archive'] == true && category != 'books') return false;
                 final sameLevel = (f['level']?.toString().toUpperCase() ?? '') == levelCode.toUpperCase();
                 final sameSubj = (f['subject']?.toString() ?? '') == subjectId;
-                final sameCat = (f['category']?.toString() ?? '') == category;
-                if (!sameLevel || !sameSubj || !sameCat) return false;
-                if (category == 'books') return true;
-                final fTrim = int.tryParse(f['trimester']?.toString() ?? '1') ?? 1;
-                return fTrim == trimester;
+                if (!sameLevel || !sameSubj) return false;
+
+                final fCat = f['category']?.toString() ?? '';
+                if (category == 'lessons') {
+                  // يجمع الدروس والملخصات معاً ويعرضها كلها بدون تقسيم فصول
+                  return fCat == 'lessons' || fCat == 'summaries';
+                } else if (category == 'exams') {
+                  // يجمع الفروض والاختبارات معاً ويصنفها حسب الفصل المختار
+                  if (fCat != 'tests' && fCat != 'exams') return false;
+                  final fTrim = int.tryParse(f['trimester']?.toString() ?? '1') ?? 1;
+                  return fTrim == trimester;
+                } else if (category == 'books') {
+                  return fCat == 'books';
+                }
+                return fCat == category;
               }).toList();
             }
 
@@ -3162,7 +3172,7 @@ jobs:
                 ),
                 body: Column(
                   children: [
-                    if (_selectedCategory != 'books')
+                    if (_selectedCategory == 'exams')
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -3178,39 +3188,32 @@ jobs:
                         ),
                       ),
 
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
+                    Padding(
                       padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
                       child: Row(
                         children: [
-                          _buildFolderTab(
-                            id: 'lessons',
-                            emoji: '📘',
-                            label: ctrl.tr('الدروس', 'Cours', 'Lessons'),
+                          Expanded(
+                            child: _buildFolderTab(
+                              id: 'lessons',
+                              emoji: '📘',
+                              label: ctrl.tr('الدروس والملخصات', 'Cours & Résumés', 'Lessons & Summaries'),
+                            ),
                           ),
                           const SizedBox(width: 8),
-                          _buildFolderTab(
-                            id: 'summaries',
-                            emoji: '📝',
-                            label: ctrl.tr('الملخصات', 'Résumés', 'Summaries'),
+                          Expanded(
+                            child: _buildFolderTab(
+                              id: 'exams',
+                              emoji: '🏆',
+                              label: ctrl.tr('الفروض والاختبارات', 'Devoirs & Examens', 'Tests & Exams'),
+                            ),
                           ),
                           const SizedBox(width: 8),
-                          _buildFolderTab(
-                            id: 'tests',
-                            emoji: '📄',
-                            label: ctrl.tr('الفروض', 'Devoirs', 'Tests'),
-                          ),
-                          const SizedBox(width: 8),
-                          _buildFolderTab(
-                            id: 'exams',
-                            emoji: '🏆',
-                            label: ctrl.tr('الاختبارات', 'Examens', 'Exams'),
-                          ),
-                          const SizedBox(width: 8),
-                          _buildFolderTab(
-                            id: 'books',
-                            emoji: '📚',
-                            label: ctrl.tr('الكتب', 'Livres', 'Books'),
+                          Expanded(
+                            child: _buildFolderTab(
+                              id: 'books',
+                              emoji: '📚',
+                              label: ctrl.tr('الكتب', 'Livres', 'Books'),
+                            ),
                           ),
                         ],
                       ),
