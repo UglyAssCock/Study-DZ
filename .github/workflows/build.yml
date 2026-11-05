@@ -43,6 +43,7 @@ jobs:
           ADMOB_APP_ID = "ca-app-pub-7333057565331280~9422146056"
           ADMOB_BANNER_ID = "ca-app-pub-7333057565331280/1755409026"
           ADMOB_INTERSTITIAL_ID = "ca-app-pub-7333057565331280/1489309001"
+          ADMOB_APP_OPEN_ID = "ca-app-pub-7333057565331280/2070389782"
           # =====================================================================
 
           LT = chr(60)
@@ -60,6 +61,7 @@ jobs:
                   .replace("__ADMOB_APP_ID__", ADMOB_APP_ID.strip())
                   .replace("__ADMOB_BANNER_ID__", ADMOB_BANNER_ID.strip())
                   .replace("__ADMOB_INTERSTITIAL_ID__", ADMOB_INTERSTITIAL_ID.strip())
+                  .replace("__ADMOB_APP_OPEN_ID__", ADMOB_APP_OPEN_ID.strip())
               )
 
           def write_file(path, content):
