@@ -28,7 +28,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Generate All 7 Clean App Files with AdMob and Build APK
+      - name: Generate Complete App with All 4 Rewarded Ads and Build APK
         shell: python
         run: |
           import os
@@ -44,6 +44,7 @@ jobs:
           ADMOB_BANNER_ID = "ca-app-pub-7333057565331280/1755409026"
           ADMOB_INTERSTITIAL_ID = "ca-app-pub-7333057565331280/1489309001"
           ADMOB_APP_OPEN_ID = "ca-app-pub-7333057565331280/2070389782"
+          ADMOB_REWARDED_ID = "ca-app-pub-7333057565331280/9286322795"
           # =====================================================================
 
           LT = chr(60)
@@ -62,6 +63,7 @@ jobs:
                   .replace("__ADMOB_BANNER_ID__", ADMOB_BANNER_ID.strip())
                   .replace("__ADMOB_INTERSTITIAL_ID__", ADMOB_INTERSTITIAL_ID.strip())
                   .replace("__ADMOB_APP_OPEN_ID__", ADMOB_APP_OPEN_ID.strip())
+                  .replace("__ADMOB_REWARDED_ID__", ADMOB_REWARDED_ID.strip())
               )
 
           def write_file(path, content):
@@ -82,16 +84,16 @@ jobs:
               "."
           ])
 
-          # 2. Wipe old lib/ completely so no old corrupted Dart files remain
+          # 2. Wipe old lib/ completely so no old files remain
           if os.path.exists("lib"):
               shutil.rmtree("lib")
           os.makedirs("lib/screens", exist_ok=True)
 
-          # 3. Write clean pubspec.yaml from scratch
+          # 3. Write clean pubspec.yaml
           write_file("pubspec.yaml", r"""name: study_dz
           description: Study DZ Algerian Educational App
           publish_to: 'none'
-          version: 6.0.0+6
+          version: 7.0.0+7
 
           environment:
             sdk: '__GT__=3.0.0 __LT__4.0.0'
@@ -217,6 +219,7 @@ jobs:
               r"""__LT__manifest xmlns:android="http://schemas.android.com/apk/res/android"__GT__
               __LT__uses-permission android:name="android.permission.INTERNET"/__GT__
               __LT__uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/__GT__
+              __LT__uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/__GT__
               __LT__uses-permission android:name="com.google.android.gms.permission.AD_ID"/__GT__
 
               __LT__application
@@ -271,17 +274,78 @@ jobs:
             } catch (_) {}
             final controller = AppController();
             await controller.initialize();
+            AdHelper.loadAndShowAppOpenAd();
             AdHelper.loadInterstitial();
+            AdHelper.loadRewarded();
             runApp(StudyDzApp(controller: controller));
           }
 
           class AdHelper {
+            static const String appOpenUnitId = '__ADMOB_APP_OPEN_ID__';
             static const String bannerUnitId = '__ADMOB_BANNER_ID__';
             static const String interstitialUnitId = '__ADMOB_INTERSTITIAL_ID__';
+            static const String rewardedUnitId = '__ADMOB_REWARDED_ID__';
 
+            static AppOpenAd? _appOpenAd;
+            static bool _isShowingAppOpen = false;
             static InterstitialAd? _interstitialAd;
             static bool _isLoadingInterstitial = false;
+            static RewardedAd? _rewardedAd;
+            static bool _isLoadingRewarded = false;
 
+            // ميزة المكافأة 1: جلسة مراجعة لمدة 60 دقيقة بدون إعلانات
+            static DateTime? adFreeUntil;
+
+            static bool get isAdFreeActive {
+              if (adFreeUntil == null) return false;
+              return DateTime.now().isBefore(adFreeUntil!);
+            }
+
+            static int get adFreeRemainingMinutes {
+              if (!isAdFreeActive) return 0;
+              return adFreeUntil!.difference(DateTime.now()).inMinutes + 1;
+            }
+
+            static void activateOneHourAdFree() {
+              adFreeUntil = DateTime.now().add(const Duration(minutes: 60));
+            }
+
+            // 1. إعلان فتح التطبيق (App Open Ad)
+            static void loadAndShowAppOpenAd() {
+              if (isAdFreeActive || _isShowingAppOpen) return;
+              AppOpenAd.load(
+                adUnitId: appOpenUnitId,
+                request: const AdRequest(),
+                adLoadCallback: AppOpenAdLoadCallback(
+                  onAdLoaded: (ad) {
+                    if (isAdFreeActive) {
+                      ad.dispose();
+                      return;
+                    }
+                    _appOpenAd = ad;
+                    _isShowingAppOpen = true;
+                    _appOpenAd!.fullScreenContentCallback = FullScreenContentCallback(
+                      onAdDismissedFullScreenContent: (ad) {
+                        _isShowingAppOpen = false;
+                        ad.dispose();
+                        _appOpenAd = null;
+                      },
+                      onAdFailedToShowFullScreenContent: (ad, _) {
+                        _isShowingAppOpen = false;
+                        ad.dispose();
+                        _appOpenAd = null;
+                      },
+                    );
+                    _appOpenAd!.show();
+                  },
+                  onAdFailedToLoad: (_) {
+                    _appOpenAd = null;
+                  },
+                ),
+              );
+            }
+
+            // 2. الإعلان البيني الكامل (Interstitial Ad)
             static void loadInterstitial() {
               if (_isLoadingInterstitial || _interstitialAd != null) return;
               _isLoadingInterstitial = true;
@@ -302,6 +366,7 @@ jobs:
             }
 
             static void showInterstitialIfReady() {
+              if (isAdFreeActive) return;
               if (_interstitialAd != null) {
                 _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
                   onAdDismissedFullScreenContent: (ad) {
@@ -321,6 +386,64 @@ jobs:
                 loadInterstitial();
               }
             }
+
+            // 3. إعلان المكافأة بالفيديو (Rewarded Video Ad) للميزات الأربع
+            static void loadRewarded() {
+              if (_isLoadingRewarded || _rewardedAd != null) return;
+              _isLoadingRewarded = true;
+              RewardedAd.load(
+                adUnitId: rewardedUnitId,
+                request: const AdRequest(),
+                rewardedAdLoadCallback: RewardedAdLoadCallback(
+                  onAdLoaded: (ad) {
+                    _rewardedAd = ad;
+                    _isLoadingRewarded = false;
+                  },
+                  onAdFailedToLoad: (_) {
+                    _rewardedAd = null;
+                    _isLoadingRewarded = false;
+                  },
+                ),
+              );
+            }
+
+            static void showRewardedAd(
+              BuildContext context, {
+              required String rewardTitle,
+              required VoidCallback onRewardEarned,
+            }) {
+              if (_rewardedAd != null) {
+                bool earned = false;
+                _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+                  onAdDismissedFullScreenContent: (ad) {
+                    ad.dispose();
+                    _rewardedAd = null;
+                    loadRewarded();
+                    if (earned) {
+                      onRewardEarned();
+                    }
+                  },
+                  onAdFailedToShowFullScreenContent: (ad, _) {
+                    ad.dispose();
+                    _rewardedAd = null;
+                    loadRewarded();
+                    onRewardEarned();
+                  },
+                );
+                _rewardedAd!.show(
+                  onUserEarnedReward: (_, __) {
+                    earned = true;
+                  },
+                );
+                _rewardedAd = null;
+              } else {
+                loadRewarded();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('🎁 تم تفعيل: $rewardTitle')),
+                );
+                onRewardEarned();
+              }
+            }
           }
 
           class StudyBannerAdWidget extends StatefulWidget {
@@ -337,6 +460,7 @@ jobs:
             @override
             void initState() {
               super.initState();
+              if (AdHelper.isAdFreeActive) return;
               _bannerAd = BannerAd(
                 adUnitId: AdHelper.bannerUnitId,
                 size: AdSize.banner,
@@ -362,7 +486,7 @@ jobs:
 
             @override
             Widget build(BuildContext context) {
-              if (!_isLoaded || _bannerAd == null) {
+              if (AdHelper.isAdFreeActive || !_isLoaded || _bannerAd == null) {
                 return const SizedBox.shrink();
               }
               return SafeArea(
@@ -536,6 +660,10 @@ jobs:
 
             List__LT__Map__LT__String, dynamic__GT____GT__ uploadedFiles = [];
             String _appDataDirPath = '';
+
+            void refreshUi() {
+              notifyListeners();
+            }
 
             static const List__LT__Map__LT__String, String__GT____GT__ allLevels = [
               {'code': '1AP', 'ar': 'السنة الأولى ابتدائي (1AP)', 'fr': '1ère Année Primaire (1AP)', 'en': '1st Year Primary (1AP)', 'cycle': 'primaire'},
@@ -894,7 +1022,12 @@ jobs:
             Map__LT__String, dynamic__GT__? classifyFilePath(String relPath) {
               final fname = relPath.split('/').last;
               final lower = fname.toLowerCase();
-              if (fname == 'icon.png' || fname == 'auto_catalog.json' || fname == 'external_links.json' || fname == 'readme.txt') {
+              if (fname == 'icon.png' ||
+                  fname == 'auto_catalog.json' ||
+                  fname == 'external_links.json' ||
+                  fname == 'readme.txt' ||
+                  fname == 'visited_hashes.txt' ||
+                  fname == 'content_hashes.txt') {
                 return null;
               }
               String ext = '';
@@ -985,9 +1118,11 @@ jobs:
                 detectedStream = 'LE';
               }
 
+              final hasTrimesterTag = ['_t1', '_t2', '_t3', '_lesson', '_resume', '_test', '_book']
+                  .any((k) =__GT__ token.contains(k));
               final hasArchiveKeyword = ['bac', 'bem', '5eme', 'cinquieme', 'بكالوريا', 'باك', 'بيام', 'سانكيام']
                   .any((k) =__GT__ token.contains(k));
-              final isOfficialArchive = detectedYear != null || hasArchiveKeyword;
+              final isOfficialArchive = !hasTrimesterTag && (hasArchiveKeyword || detectedYear != null);
 
               String archiveCycle = 'secondaire';
               if (['5eme', '5ap', 'cinquieme', 'سانكيام', 'ابتدائي'].any((k) =__GT__ token.contains(k)) ||
@@ -1062,6 +1197,171 @@ jobs:
                 }
                 return true;
               }).toList();
+            }
+
+            // 1. دمج (الدروس + الملخصات بدون فصول) ودمج (الفروض + الاختبارات مع الفصول)
+            List__LT__Map__LT__String, dynamic__GT____GT__ getUploadedStudyItems({
+              required String levelCode,
+              required String subjectId,
+              required int trimester,
+              required String category,
+            }) {
+              return uploadedFiles.where((f) {
+                if (f['is_archive'] == true && category != 'books') return false;
+                final sameLevel = (f['level']?.toString().toUpperCase() ?? '') == levelCode.toUpperCase();
+                final sameSubj = (f['subject']?.toString() ?? '') == subjectId;
+                if (!sameLevel || !sameSubj) return false;
+
+                final fCat = f['category']?.toString() ?? '';
+                if (category == 'lessons') {
+                  return fCat == 'lessons' || fCat == 'summaries';
+                } else if (category == 'exams') {
+                  if (fCat != 'tests' && fCat != 'exams') return false;
+                  final fTrim = int.tryParse(f['trimester']?.toString() ?? '1') ?? 1;
+                  return fTrim == trimester;
+                } else if (category == 'books') {
+                  return fCat == 'books';
+                }
+                return fCat == category;
+              }).toList();
+            }
+
+            // 2. تحويل أسماء الملفات الإنجليزية تلقائياً إلى أسماء عربية واضحة
+            String formatArabicFileTitle(Map__LT__String, dynamic__GT__ fileItem, int index) {
+              final rawTitle = fileItem['title']?.toString() ?? '';
+              if (RegExp(r'[\u0600-\u06FF]').hasMatch(rawTitle)) {
+                return rawTitle;
+              }
+
+              final subjId = fileItem['subject']?.toString() ?? 'math';
+              final subjAr = subjectCatalog[subjId]?['ar'] ?? 'المادة';
+              final numMatch = RegExp(r'(\d+)$').firstMatch(rawTitle.trim());
+              final modelNum = numMatch != null ? numMatch.group(1)! : '${index + 1}';
+
+              if (fileItem['is_archive'] == true) {
+                final yr = fileItem['year'] ?? 2025;
+                final cyc = fileItem['archive_cycle']?.toString() ?? 'secondaire';
+                if (cyc == 'secondaire') return 'موضوع بكالوريا $yr في $subjAr';
+                if (cyc == 'moyen') return 'موضوع شهادة التعليم المتوسط $yr في $subjAr';
+                return 'موضوع شهادة التعليم الابتدائي $yr في $subjAr';
+              }
+
+              final cat = fileItem['category']?.toString() ?? 'exams';
+              final trim = int.tryParse(fileItem['trimester']?.toString() ?? '1') ?? 1;
+              final trimAr = trim == 2
+                  ? 'الفصل الثاني'
+                  : trim == 3
+                      ? 'الفصل الثالث'
+                      : 'الفصل الأول';
+
+              if (cat == 'books') return 'الكتاب المدرسي في $subjAr - النموذج ${index + 1}';
+              if (cat == 'lessons') return 'درس مشروح في $subjAr - النموذج $modelNum';
+              if (cat == 'summaries') return 'ملخص شامل في $subjAr - النموذج $modelNum';
+              if (cat == 'tests') return 'فرض $trimAr في $subjAr - النموذج $modelNum';
+              return 'اختبار $trimAr في $subjAr - النموذج $modelNum';
+            }
+
+            // 3. عدادات الملفات (####) بجانب كل طور، مستوى، مادة، قسم، وفصل
+            int countFilesForCycle(String cycleCode) {
+              final cycleLvls = allLevels
+                  .where((l) =__GT__ l['cycle'] == cycleCode)
+                  .map((l) =__GT__ l['code']!.toUpperCase())
+                  .toSet();
+              return uploadedFiles.where((f) {
+                if (f['is_archive'] == true) {
+                  return f['archive_cycle'] == cycleCode;
+                }
+                return cycleLvls.contains((f['level']?.toString() ?? '').toUpperCase());
+              }).length;
+            }
+
+            int countFilesForLevel(String levelCode) {
+              final target = levelCode.toUpperCase();
+              return uploadedFiles.where((f) {
+                if (f['is_archive'] == true && f['category'] != 'books') return false;
+                return (f['level']?.toString() ?? '').toUpperCase() == target;
+              }).length;
+            }
+
+            int countFilesForSubject(String levelCode, String subjectId) {
+              final target = levelCode.toUpperCase();
+              return uploadedFiles.where((f) {
+                if (f['is_archive'] == true && f['category'] != 'books') return false;
+                return (f['level']?.toString() ?? '').toUpperCase() == target &&
+                    f['subject'] == subjectId;
+              }).length;
+            }
+
+            int countFilesForMergedFolder({
+              required String levelCode,
+              required String subjectId,
+              required String folderId,
+              int? trimester,
+            }) {
+              final target = levelCode.toUpperCase();
+              return uploadedFiles.where((f) {
+                if (f['is_archive'] == true && folderId != 'books') return false;
+                if ((f['level']?.toString() ?? '').toUpperCase() != target) return false;
+                if (f['subject'] != subjectId) return false;
+
+                final fCat = f['category']?.toString() ?? '';
+                if (folderId == 'lessons') {
+                  return fCat == 'lessons' || fCat == 'summaries';
+                }
+                if (folderId == 'exams') {
+                  if (fCat != 'tests' && fCat != 'exams') return false;
+                  if (trimester != null) {
+                    final fTrim = int.tryParse(f['trimester']?.toString() ?? '1') ?? 1;
+                    return fTrim == trimester;
+                  }
+                  return true;
+                }
+                if (folderId == 'books') {
+                  return fCat == 'books';
+                }
+                return false;
+              }).length;
+            }
+
+            int countArchiveFiles({
+              required String cycleCode,
+              String? subjectId,
+              String? streamCode,
+            }) {
+              return uploadedFiles.where((f) {
+                if (f['is_archive'] != true) return false;
+                if (f['archive_cycle'] != cycleCode) return false;
+                if (subjectId != null && f['subject'] != subjectId) return false;
+                if (cycleCode == 'secondaire' && streamCode != null && streamCode != 'ALL') {
+                  final fs = (f['stream']?.toString() ?? 'ALL').toUpperCase();
+                  if (fs != 'ALL' && fs != streamCode.toUpperCase()) return false;
+                }
+                return true;
+              }).length;
+            }
+
+            // 4. ميزة المكافأة 2: حفظ نسخة PDF في مجلد Download بالهاتف للطباعة
+            Future__LT__String__GT__ exportPdfForPrinting(Map__LT__String, dynamic__GT__ fileItem) async {
+              final cached = await downloadAndCacheFile(fileItem);
+              final rawName = (fileItem['path']?.toString() ?? 'StudyDZ_Document.pdf').split('/').last;
+              final cleanName = rawName.endsWith('.pdf') ? rawName : '$rawName.pdf';
+
+              final downloadDirs = [
+                Directory('/storage/emulated/0/Download'),
+                Directory('/sdcard/Download'),
+                Directory(_appDataDirPath),
+              ];
+
+              for (final dir in downloadDirs) {
+                try {
+                  if (await dir.exists()) {
+                    final outPath = '${dir.path}/StudyDZ_$cleanName';
+                    await cached.copy(outPath);
+                    return outPath;
+                  }
+                } catch (_) {}
+              }
+              return cached.path;
             }
 
             Future__LT__int__GT__ refreshCloudCatalog() async {
@@ -1155,46 +1455,20 @@ jobs:
               }
             }
 
-            List__LT__Map__LT__String, dynamic__GT____GT__ getUploadedStudyItems({
-              required String levelCode,
-              required String subjectId,
-              required int trimester,
-              required String category,
-            }) {
-              return uploadedFiles.where((f) {
-                if (f['is_archive'] == true && category != 'books') return false;
-                final sameLevel = (f['level']?.toString().toUpperCase() ?? '') == levelCode.toUpperCase();
-                final sameSubj = (f['subject']?.toString() ?? '') == subjectId;
-                if (!sameLevel || !sameSubj) return false;
-
-                final fCat = f['category']?.toString() ?? '';
-                if (category == 'lessons') {
-                  // يجمع الدروس والملخصات معاً ويعرضها كلها بدون تقسيم فصول
-                  return fCat == 'lessons' || fCat == 'summaries';
-                } else if (category == 'exams') {
-                  // يجمع الفروض والاختبارات معاً ويصنفها حسب الفصل المختار
-                  if (fCat != 'tests' && fCat != 'exams') return false;
-                  final fTrim = int.tryParse(f['trimester']?.toString() ?? '1') ?? 1;
-                  return fTrim == trimester;
-                } else if (category == 'books') {
-                  return fCat == 'books';
-                }
-                return fCat == category;
-              }).toList();
-            }
-
             List__LT__Map__LT__String, dynamic__GT____GT__ searchAllContent(String query) {
               final q = query.trim().toLowerCase();
               if (q.isEmpty) return [];
               final results = __LT__Map__LT__String, dynamic__GT____GT__[];
 
-              for (final f in uploadedFiles) {
+              for (int i = 0; i __LT__ uploadedFiles.length; i++) {
+                final f = uploadedFiles[i];
                 final title = (f['title'] ?? '').toString().toLowerCase();
+                final arTitle = formatArabicFileTitle(f, i).toLowerCase();
                 final lvl = (f['level'] ?? '').toString().toLowerCase();
                 final subj = (f['subject'] ?? '').toString();
                 final subjAr = (subjectCatalog[subj]?['ar'] ?? '').toLowerCase();
                 final yr = (f['year'] ?? '').toString();
-                if (title.contains(q) || lvl.contains(q) || subjAr.contains(q) || yr.contains(q)) {
+                if (title.contains(q) || arTitle.contains(q) || lvl.contains(q) || subjAr.contains(q) || yr.contains(q)) {
                   results.add(f);
                 }
               }
@@ -1724,6 +1998,10 @@ jobs:
               final profile = ctrl.currentProfile;
               final avatarEmoji = profile.gender == 'female' ? '👧🏻' : '👦🏻';
 
+              final primCount = ctrl.countFilesForCycle('primaire');
+              final moyenCount = ctrl.countFilesForCycle('moyen');
+              final secCount = ctrl.countFilesForCycle('secondaire');
+
               return Scaffold(
                 key: _scaffoldKey,
                 drawer: const AppDrawerMenu(),
@@ -1858,11 +2136,76 @@ jobs:
                         ),
                       ),
                     ),
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 14),
+
+                    // ميزة المكافأة 1: جلسة مراجعة لمدة ساعة بدون إعلانات الإزعاج
+                    InkWell(
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: () {
+                        if (AdHelper.isAdFreeActive) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                '✅ وضع عدم الإزعاج مفعّل حالياً (متبقي ${AdHelper.adFreeRemainingMinutes} دقيقة بدون إعلانات)',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+                        AdHelper.showRewardedAd(
+                          context,
+                          rewardTitle: 'جلسة مراجعة لمدة 60 دقيقة بدون إعلانات',
+                          onRewardEarned: () {
+                            setState(() {
+                              AdHelper.activateOneHourAdFree();
+                            });
+                            ctrl.refreshUi();
+                          },
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: AdHelper.isAdFreeActive
+                              ? const Color(0xFFE8F5E9)
+                              : const Color(0xFFFFF8E1),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: AdHelper.isAdFreeActive
+                                ? const Color(0xFF147A42)
+                                : const Color(0xFFF5B800),
+                            width: 1.6,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Text(
+                              AdHelper.isAdFreeActive ? '🛡️' : '🎁',
+                              style: const TextStyle(fontSize: 26),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                AdHelper.isAdFreeActive
+                                    ? 'وضع الدراسة بدون إعلانات مفعّل! (متبقي ${AdHelper.adFreeRemainingMinutes} دقيقة)'
+                                    : 'جلسة مراجعة لمدة ساعة بدون إعلانات الإزعاج (شاهد إعلاناً قصيراً)',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 13.5,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                            const Icon(Icons.play_circle_fill, color: Color(0xFF147A42), size: 26),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     _MainCategoryCard(
                       title: ctrl.tr('التعليم الابتدائي', 'Enseignement Primaire', 'Primary School'),
-                      subtitle: ctrl.tr('تصفح المستويات', 'Parcourir les niveaux', 'Browse Levels'),
+                      subtitle: '${ctrl.tr("تصفح المستويات", "Parcourir les niveaux", "Browse Levels")} • $primCount ملف',
                       iconWidget: const _BadgeIllustration(emoji: '🎒', bgColor: Color(0xFFE8F5E9)),
                       onTap: () {
                         Navigator.push(
@@ -1882,7 +2225,7 @@ jobs:
 
                     _MainCategoryCard(
                       title: ctrl.tr('التعليم المتوسط', 'Enseignement Moyen (CEM)', 'Middle School (CEM)'),
-                      subtitle: ctrl.tr('تصفح المستويات', 'Parcourir les niveaux', 'Browse Levels'),
+                      subtitle: '${ctrl.tr("تصفح المستويات", "Parcourir les niveaux", "Browse Levels")} • $moyenCount ملف',
                       iconWidget: const _BadgeIllustration(emoji: '📝', bgColor: Color(0xFFE8F5E9)),
                       onTap: () {
                         Navigator.push(
@@ -1902,7 +2245,7 @@ jobs:
 
                     _MainCategoryCard(
                       title: ctrl.tr('التعليم الثانوي', 'Enseignement Secondaire', 'High School (BAC)'),
-                      subtitle: ctrl.tr('تصفح المستويات', 'Parcourir les niveaux', 'Browse Levels'),
+                      subtitle: '${ctrl.tr("تصفح المستويات", "Parcourir les niveaux", "Browse Levels")} • $secCount ملف',
                       iconWidget: const _BadgeIllustration(emoji: '🎓', bgColor: Color(0xFFE8F5E9)),
                       onTap: () {
                         Navigator.push(
@@ -2109,9 +2452,9 @@ jobs:
                               Text(
                                 subtitle,
                                 style: TextStyle(
-                                  fontSize: 16,
-                                  color: ctrl.isDarkMode ? Colors.white70 : const Color(0xFF6E7570),
-                                  fontWeight: FontWeight.w500,
+                                  fontSize: 15.5,
+                                  color: ctrl.isDarkMode ? Colors.white70 : const Color(0xFF147A42),
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ],
@@ -2197,7 +2540,7 @@ jobs:
                         autofocus: true,
                         decoration: InputDecoration(
                           hintText: ctrl.tr(
-                            'ابحث عن ملف مرفوع، سنة دراسية، أو بكالوريا (مثال: 2025، رياضيات)...',
+                            'ابحث عن ملف، مادة، أو سنة (مثال: 2025، رياضيات، 5AP)...',
                             'Rechercher un fichier, un niveau ou une année...',
                             'Search uploaded file, grade level, or year...',
                           ),
@@ -2218,7 +2561,7 @@ jobs:
                                 padding: const EdgeInsets.all(24),
                                 child: Text(
                                   ctrl.tr(
-                                    'اكتب اسم الملف أو السنة للوصول السريع.',
+                                    'اكتب اسم المادة أو السنة للوصول السريع.',
                                     'Tapez le nom du fichier ou du niveau.',
                                     'Type a file name or level to search.',
                                   ),
@@ -2249,26 +2592,28 @@ jobs:
                                       },
                                     ),
                                   ),
-                                for (final f in results)
+                                for (int i = 0; i __LT__ results.length; i++)
                                   Card(
                                     child: ListTile(
                                       leading: Icon(
-                                        f['type'] == 'pdf' ? Icons.picture_as_pdf : Icons.image,
+                                        results[i]['type'] == 'pdf' ? Icons.picture_as_pdf : Icons.image,
                                         color: const Color(0xFF147A42),
                                         size: 30,
                                       ),
                                       title: Text(
-                                        f['title']?.toString() ?? '',
+                                        ctrl.formatArabicFileTitle(results[i], i),
                                         style: const TextStyle(fontWeight: FontWeight.bold),
                                       ),
                                       subtitle: Text(
-                                        '${f['level']} • ${ctrl.subjectTitle(f['subject']?.toString() ?? 'math')}',
+                                        '${results[i]['level']} • ${ctrl.subjectTitle(results[i]['subject']?.toString() ?? 'math')}',
                                       ),
                                       onTap: () {
+                                        final itemCopy = Map__LT__String, dynamic__GT__.from(results[i]);
+                                        itemCopy['title'] = ctrl.formatArabicFileTitle(results[i], i);
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(
-                                            builder: (_) =__GT__ FileViewerPage(fileItem: f),
+                                            builder: (_) =__GT__ FileViewerPage(fileItem: itemCopy),
                                           ),
                                         );
                                       },
@@ -2326,23 +2671,12 @@ jobs:
                   .where((l) =__GT__ l['cycle'] == cycleCode)
                   .toList();
 
+              final archiveCount = ctrl.countArchiveFiles(cycleCode: cycleCode);
               final archiveTitle = cycleCode == 'secondaire'
-                  ? ctrl.tr('مواضيع البكالوريا', 'Sujets du Baccalauréat', 'Baccalauréat Past Exams')
+                  ? 'مواضيع البكالوريا ($archiveCount)'
                   : cycleCode == 'moyen'
-                      ? ctrl.tr('مواضيع شهادة التعليم المتوسط (BEM)', 'Sujets du BEM', 'BEM Past Exams')
-                      : ctrl.tr('مواضيع شهادة التعليم الابتدائي (5ème)', 'Sujets 5ème Primaire', '5ème Primary Past Exams');
-
-              final archiveSubtitle = cycleCode == 'secondaire'
-                  ? ctrl.tr(
-                      'جميع المواد والشعب من سنة 2008 إلى 2026',
-                      'Toutes les matières et filières de 2008 à 2026',
-                      'All subjects & streams from 2008 to 2026',
-                    )
-                  : ctrl.tr(
-                      'جميع المواد من سنة 2008 إلى 2026',
-                      'Toutes les matières de 2008 à 2026',
-                      'All subjects from 2008 to 2026',
-                    );
+                      ? 'مواضيع شهادة التعليم المتوسط BEM ($archiveCount)'
+                      : 'مواضيع شهادة التعليم الابتدائي 5ème ($archiveCount)';
 
               return Scaffold(
                 bottomNavigationBar: const StudyBannerAdWidget(),
@@ -2400,18 +2734,25 @@ jobs:
                                       Text(
                                         ctrl.tr(lvl['ar']!, lvl['fr']!, lvl['en']),
                                         style: const TextStyle(
-                                          fontSize: 17,
+                                          fontSize: 16.5,
                                           fontWeight: FontWeight.w900,
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        ctrl.tr(
-                                          'اضغط لتصفح المواد الدراسية (الدروس، الملخصات، الفروض، الاختبارات، الكتب)',
-                                          'Cliquez pour voir les matières et fichiers',
-                                          'Tap to browse subjects & files',
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF147A42).withOpacity(0.12),
+                                          borderRadius: BorderRadius.circular(10),
                                         ),
-                                        style: const TextStyle(fontSize: 12.5, color: Colors.grey),
+                                        child: Text(
+                                          '📁 عدد الملفات: ${ctrl.countFilesForLevel(lvl['code']!)}',
+                                          style: const TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w900,
+                                            color: Color(0xFF147A42),
+                                          ),
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -2451,13 +2792,6 @@ jobs:
                           ),
                           borderRadius: BorderRadius.circular(22),
                           border: Border.all(color: const Color(0xFFF5B800), width: 2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF147A42).withOpacity(0.25),
-                              blurRadius: 12,
-                              offset: const Offset(0, 5),
-                            ),
-                          ],
                         ),
                         child: Row(
                           children: [
@@ -2481,17 +2815,14 @@ jobs:
                                     archiveTitle,
                                     style: const TextStyle(
                                       color: Colors.white,
-                                      fontSize: 19,
+                                      fontSize: 18,
                                       fontWeight: FontWeight.w900,
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(
-                                    archiveSubtitle,
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 13,
-                                    ),
+                                  const Text(
+                                    'جميع المواضيع الرسمية من سنة 2008 إلى 2026',
+                                    style: TextStyle(color: Colors.white70, fontSize: 13),
                                   ),
                                 ],
                               ),
@@ -2528,20 +2859,20 @@ jobs:
 
               return Scaffold(
                 bottomNavigationBar: const StudyBannerAdWidget(),
-                appBar: AppBar(
-                  title: Text(archiveTitle),
-                ),
+                appBar: AppBar(title: Text(archiveTitle)),
                 body: GridView.builder(
                   padding: const EdgeInsets.all(16),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
                     mainAxisSpacing: 14,
                     crossAxisSpacing: 14,
-                    childAspectRatio: 1.12,
+                    childAspectRatio: 1.08,
                   ),
                   itemCount: subjectIds.length,
                   itemBuilder: (context, idx) {
                     final subjId = subjectIds[idx];
+                    final count = ctrl.countArchiveFiles(cycleCode: cycleCode, subjectId: subjId);
+
                     return InkWell(
                       borderRadius: BorderRadius.circular(20),
                       onTap: () {
@@ -2563,7 +2894,7 @@ jobs:
                                 cycleCode: cycleCode,
                                 subjectId: subjId,
                                 streamCode: 'ALL',
-                                headerTitle: '$archiveTitle - ${ctrl.subjectTitle(subjId)}',
+                                headerTitle: ctrl.subjectTitle(subjId),
                               ),
                             ),
                           );
@@ -2574,23 +2905,34 @@ jobs:
                         decoration: BoxDecoration(
                           color: ctrl.isDarkMode ? const Color(0xFF19241D) : const Color(0xFFF9F9F4),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: const Color(0xFF147A42).withOpacity(0.25),
-                          ),
+                          border: Border.all(color: const Color(0xFF147A42).withOpacity(0.25)),
                         ),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(ctrl.subjectEmoji(subjId), style: const TextStyle(fontSize: 38)),
-                            const SizedBox(height: 10),
+                            Text(ctrl.subjectEmoji(subjId), style: const TextStyle(fontSize: 36)),
+                            const SizedBox(height: 8),
                             Text(
                               ctrl.subjectTitle(subjId),
                               textAlign: TextAlign.center,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 15,
+                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
+                            ),
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF147A42).withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '$count موضوع',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF147A42),
+                                ),
                               ),
                             ),
                           ],
@@ -2630,7 +2972,12 @@ jobs:
                     final s = streams[idx];
                     final sCode = s['code']!;
                     final sLabel = ctrl.tr(s['ar']!, s['fr']!, s['en']);
-                    final fullCardTitle = 'مواضيع البكالوريا - $sLabel';
+                    final count = ctrl.countArchiveFiles(
+                      cycleCode: cycleCode,
+                      subjectId: subjectId,
+                      streamCode: sCode,
+                    );
+                    final fullCardTitle = 'مواضيع البكالوريا - $sLabel ($count)';
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
@@ -2670,10 +3017,7 @@ jobs:
                                   children: [
                                     Text(
                                       fullCardTitle,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 16,
-                                      ),
+                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
@@ -2719,26 +3063,26 @@ jobs:
               final years = List__LT__int__GT__.generate(19, (i) =__GT__ 2026 - i);
 
               String yearLabelFor(int year) {
-                if (cycleCode == 'secondaire') {
-                  return ctrl.tr('شهادة البكالوريا $year', 'Baccalauréat $year', 'Baccalauréat $year');
-                }
-                if (cycleCode == 'moyen') {
-                  return ctrl.tr('شهادة التعليم المتوسط $year', 'BEM $year', 'BEM $year');
-                }
-                return ctrl.tr('شهادة التعليم الابتدائي $year', 'Examen 5ème $year', '5ème Exam $year');
+                if (cycleCode == 'secondaire') return 'شهادة البكالوريا $year';
+                if (cycleCode == 'moyen') return 'شهادة التعليم المتوسط $year';
+                return 'شهادة التعليم الابتدائي $year';
               }
 
               return Scaffold(
                 bottomNavigationBar: const StudyBannerAdWidget(),
-                appBar: AppBar(
-                  title: Text(headerTitle),
-                ),
+                appBar: AppBar(title: Text(headerTitle)),
                 body: ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: years.length,
                   itemBuilder: (context, idx) {
                     final yr = years[idx];
                     final label = yearLabelFor(yr);
+                    final yrCount = ctrl.getOfficialArchiveItems(
+                      cycleCode: cycleCode,
+                      subjectId: subjectId,
+                      streamCode: streamCode,
+                      year: yr,
+                    ).length;
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
@@ -2764,8 +3108,8 @@ jobs:
                             ),
                           ),
                           title: Text(
-                            label,
-                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5),
+                            '$label ($yrCount)',
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                           ),
                           subtitle: Text(
                             '${ctrl.subjectTitle(subjectId)} • موضوع الامتحان الرسمي',
@@ -2826,37 +3170,14 @@ jobs:
                 year: year,
               );
 
-              final prefixCode = cycleCode == 'secondaire'
-                  ? 'bac'
-                  : cycleCode == 'moyen'
-                      ? 'bem'
-                      : '5eme';
-              final streamPart = cycleCode == 'secondaire'
-                  ? '_${streamCode.toLowerCase()}'
-                  : '';
-              final sampleFileName = '${prefixCode}_${year}_$subjectId$streamPart.pdf';
-
               return Scaffold(
                 bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: AppBar(
                   title: Text('$yearTitle - ${ctrl.subjectTitle(subjectId)}'),
                   actions: [
                     IconButton(
-                      icon: ctrl.isSyncingCloud
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : const Icon(Icons.sync),
-                      onPressed: () async {
-                        final count = await ctrl.refreshCloudCatalog();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('تم تحديث الملفات من السحابة ($count ملف)')),
-                          );
-                        }
-                      },
+                      icon: const Icon(Icons.sync),
+                      onPressed: () =__GT__ ctrl.refreshCloudCatalog(),
                     ),
                   ],
                 ),
@@ -2864,29 +3185,10 @@ jobs:
                     ? Center(
                         child: Padding(
                           padding: const EdgeInsets.all(26),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.description_outlined,
-                                size: 64,
-                                color: Color(0xFF147A42),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'موضوع $yearTitle (${ctrl.subjectTitle(subjectId)})',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'لإضافة هذا الموضوع، ارفع ملف الـ PDF أو الصورة داخل مجلد files/ على GitHub باسم:\n'
-                                '$sampleFileName\n'
-                                'ثم اضغط على زر التحديث (🔄) في الأعلى ليظهر فوراً!',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(fontSize: 13.5, color: Colors.grey, height: 1.5),
-                              ),
-                            ],
+                          child: Text(
+                            'لا يوجد ملف مرفوع حالياً لـ $yearTitle في مادة ${ctrl.subjectTitle(subjectId)}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                           ),
                         ),
                       )
@@ -2894,8 +3196,9 @@ jobs:
                         padding: const EdgeInsets.all(16),
                         itemCount: items.length,
                         itemBuilder: (context, idx) {
-                          final fileItem = items[idx];
-                          final isPdf = fileItem['type'] == 'pdf';
+                          final fileItem = Map__LT__String, dynamic__GT__.from(items[idx]);
+                          final arTitle = ctrl.formatArabicFileTitle(fileItem, idx);
+                          fileItem['title'] = arTitle;
                           final isCached = ctrl.isFileCachedLocally(fileItem);
 
                           return Card(
@@ -2905,14 +3208,10 @@ jobs:
                               leading: CircleAvatar(
                                 radius: 24,
                                 backgroundColor: const Color(0xFF147A42).withOpacity(0.14),
-                                child: Icon(
-                                  isPdf ? Icons.picture_as_pdf : Icons.image,
-                                  color: const Color(0xFF147A42),
-                                  size: 26,
-                                ),
+                                child: const Icon(Icons.picture_as_pdf, color: Color(0xFF147A42), size: 26),
                               ),
                               title: Text(
-                                '📄 موضوع $yearTitle - ${ctrl.subjectTitle(subjectId)}',
+                                arTitle,
                                 style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                               ),
                               subtitle: Text(
@@ -2981,7 +3280,7 @@ jobs:
               return Scaffold(
                 bottomNavigationBar: const StudyBannerAdWidget(),
                 appBar: AppBar(
-                  title: Text(ctrl.levelLabel(widget.levelCode)),
+                  title: Text('${ctrl.levelLabel(widget.levelCode)} (${ctrl.countFilesForLevel(widget.levelCode)})'),
                 ),
                 body: Column(
                   children: [
@@ -3017,12 +3316,13 @@ jobs:
                           crossAxisCount: 2,
                           mainAxisSpacing: 14,
                           crossAxisSpacing: 14,
-                          childAspectRatio: 1.08,
+                          childAspectRatio: 1.06,
                         ),
                         itemCount: subjectIds.length,
                         itemBuilder: (context, idx) {
                           final subjId = subjectIds[idx];
                           final coeff = coeffsMap[subjId] ?? 1;
+                          final subjCount = ctrl.countFilesForSubject(widget.levelCode, subjId);
 
                           return InkWell(
                             borderRadius: BorderRadius.circular(20),
@@ -3044,27 +3344,19 @@ jobs:
                               decoration: BoxDecoration(
                                 color: ctrl.isDarkMode ? const Color(0xFF19241D) : const Color(0xFFF9F9F4),
                                 borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: const Color(0xFF147A42).withOpacity(0.22),
-                                ),
+                                border: Border.all(color: const Color(0xFF147A42).withOpacity(0.22)),
                               ),
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Text(
-                                    ctrl.subjectEmoji(subjId),
-                                    style: const TextStyle(fontSize: 38),
-                                  ),
-                                  const SizedBox(height: 8),
+                                  Text(ctrl.subjectEmoji(subjId), style: const TextStyle(fontSize: 36)),
+                                  const SizedBox(height: 6),
                                   Text(
                                     ctrl.subjectTitle(subjId),
                                     textAlign: TextAlign.center,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 14.5,
-                                    ),
+                                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
                                   ),
                                   const SizedBox(height: 6),
                                   Container(
@@ -3074,12 +3366,10 @@ jobs:
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Text(
-                                      widget.levelCode.endsWith('AP')
-                                          ? ctrl.tr('طور ابتدائي (/10)', 'Primaire (/10)', 'Primary (/10)')
-                                          : '${ctrl.tr("المعامل", "Coeff", "Coeff")}: $coeff',
+                                      '📁 $subjCount ملف',
                                       style: const TextStyle(
                                         fontSize: 12,
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight: FontWeight.w900,
                                         color: Color(0xFF147A42),
                                       ),
                                     ),
@@ -3118,6 +3408,34 @@ jobs:
           class _SubjectTrimestersPageState extends State__LT__SubjectTrimestersPage__GT__ {
             int _selectedTrimester = 1;
             String _selectedCategory = 'lessons';
+            bool _isBulkDownloading = false;
+            int _bulkDoneCount = 0;
+
+            Future__LT__void__GT__ _downloadAllFolderItems(
+              AppController ctrl,
+              List__LT__Map__LT__String, dynamic__GT____GT__ items,
+            ) async {
+              setState(() {
+                _isBulkDownloading = true;
+                _bulkDoneCount = 0;
+              });
+              for (final item in items) {
+                try {
+                  await ctrl.downloadAndCacheFile(item);
+                } catch (_) {}
+                if (mounted) {
+                  setState(() =__GT__ _bulkDoneCount++);
+                }
+              }
+              if (mounted) {
+                setState(() =__GT__ _isBulkDownloading = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('✅ تم تحميل وحفظ جميع الملفات (${items.length}) للعمل بدون إنترنت!'),
+                  ),
+                );
+              }
+            }
 
             @override
             Widget build(BuildContext context) {
@@ -3129,15 +3447,40 @@ jobs:
                 category: _selectedCategory,
               );
 
-              final catKeyHint = _selectedCategory == 'lessons'
-                  ? 'lesson'
-                  : _selectedCategory == 'summaries'
-                      ? 'resume'
-                      : _selectedCategory == 'tests'
-                          ? 'test'
-                          : _selectedCategory == 'exams'
-                              ? 'exam'
-                              : 'book';
+              final lessonsCount = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'lessons',
+              );
+              final examsCount = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'exams',
+              );
+              final booksCount = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'books',
+              );
+
+              final t1Count = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'exams',
+                trimester: 1,
+              );
+              final t2Count = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'exams',
+                trimester: 2,
+              );
+              final t3Count = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'exams',
+                trimester: 3,
+              );
 
               return Scaffold(
                 bottomNavigationBar: const StudyBannerAdWidget(),
@@ -3145,51 +3488,14 @@ jobs:
                   title: Text('${ctrl.subjectTitle(widget.subjectId)} (${widget.levelCode})'),
                   actions: [
                     IconButton(
-                      tooltip: ctrl.tr('تحديث الملفات من السحابة', 'Actualiser', 'Refresh Cloud Files'),
-                      icon: ctrl.isSyncingCloud
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : const Icon(Icons.sync),
-                      onPressed: () async {
-                        final count = await ctrl.refreshCloudCatalog();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                ctrl.tr(
-                                  'تم تحديث القائمة من GitHub ($count ملف مكتشف)',
-                                  'Catalogue mis à jour ($count fichiers)',
-                                  'Catalog synced ($count files found)',
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-                      },
+                      icon: const Icon(Icons.sync),
+                      onPressed: () =__GT__ ctrl.refreshCloudCatalog(),
                     ),
                   ],
                 ),
                 body: Column(
                   children: [
-                    if (_selectedCategory == 'exams')
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        color: const Color(0xFF147A42).withOpacity(0.08),
-                        child: Row(
-                          children: [
-                            _buildTrimesterButton(1, ctrl.tr('الفصل الأول', 'Trimestre 1', 'Trimester 1')),
-                            const SizedBox(width: 8),
-                            _buildTrimesterButton(2, ctrl.tr('الفصل الثاني', 'Trimestre 2', 'Trimester 2')),
-                            const SizedBox(width: 8),
-                            _buildTrimesterButton(3, ctrl.tr('الفصل الثالث', 'Trimestre 3', 'Trimester 3')),
-                          ],
-                        ),
-                      ),
-
+                    // 3 Merged Folders Row: الدروس والملخصات | الفروض والاختبارات | الكتب
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
                       child: Row(
@@ -3198,7 +3504,7 @@ jobs:
                             child: _buildFolderTab(
                               id: 'lessons',
                               emoji: '📘',
-                              label: ctrl.tr('الدروس والملخصات', 'Cours & Résumés', 'Lessons & Summaries'),
+                              label: 'الدروس والملخصات ($lessonsCount)',
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -3206,7 +3512,7 @@ jobs:
                             child: _buildFolderTab(
                               id: 'exams',
                               emoji: '🏆',
-                              label: ctrl.tr('الفروض والاختبارات', 'Devoirs & Examens', 'Tests & Exams'),
+                              label: 'الفروض والاختبارات ($examsCount)',
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -3214,49 +3520,90 @@ jobs:
                             child: _buildFolderTab(
                               id: 'books',
                               emoji: '📚',
-                              label: ctrl.tr('الكتب', 'Livres', 'Books'),
+                              label: 'الكتب ($booksCount)',
                             ),
                           ),
                         ],
                       ),
                     ),
+
+                    // Trimester Selector ONLY for الفروض والاختبارات ('exams')
+                    if (_selectedCategory == 'exams')
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        color: const Color(0xFF147A42).withOpacity(0.08),
+                        child: Row(
+                          children: [
+                            _buildTrimesterButton(1, 'الفصل الأول ($t1Count)'),
+                            const SizedBox(width: 6),
+                            _buildTrimesterButton(2, 'الفصل الثاني ($t2Count)'),
+                            const SizedBox(width: 6),
+                            _buildTrimesterButton(3, 'الفصل الثالث ($t3Count)'),
+                          ],
+                        ),
+                      ),
+
+                    // ميزة المكافأة 3: تحميل جميع ملفات هذا القسم دفعة واحدة بدون إنترنت
+                    if (items.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                        child: _isBulkDownloading
+                            ? Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE8F5E9),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'جاري تحميل الملفات بدون إنترنت ($_bulkDoneCount / ${items.length})...',
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF147A42),
+                                  side: const BorderSide(color: Color(0xFF147A42), width: 1.5),
+                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                ),
+                                onPressed: () {
+                                  AdHelper.showRewardedAd(
+                                    context,
+                                    rewardTitle: 'تحميل جميع ملفات القسم دفعة واحدة',
+                                    onRewardEarned: () =__GT__ _downloadAllFolderItems(ctrl, items),
+                                  );
+                                },
+                                icon: const Icon(Icons.downloading_rounded),
+                                label: Text(
+                                  '⚡ تحميل جميع ملفات هذا القسم دفعة واحدة بدون إنترنت (${items.length} ملف)',
+                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5),
+                                ),
+                              ),
+                      ),
+
                     const Divider(),
 
                     Expanded(
                       child: items.isEmpty
-                          ? Center(
+                          ? const Center(
                               child: Padding(
-                                padding: const EdgeInsets.all(26),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.cloud_upload_outlined,
-                                      size: 64,
-                                      color: Color(0xFF147A42),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      ctrl.tr(
-                                        'لا توجد ملفات مرفوعة في هذا المجلد حالياً',
-                                        'Aucun fichier dans ce dossier pour le moment',
-                                        'No files in this folder yet',
-                                      ),
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'ارفع ملف الـ PDF أو الصورة في مجلد files/ على GitHub باسم مثل:\n'
-                                      '${widget.levelCode.toLowerCase()}_${widget.subjectId}_t${_selectedTrimester}_$catKeyHint.pdf\n'
-                                      'ثم اضغط على زر التحديث (🔄) في الأعلى ليظهر فوراً!',
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
-                                    ),
-                                  ],
+                                padding: EdgeInsets.all(26),
+                                child: Text(
+                                  'لا توجد ملفات مرفوعة في هذا القسم حالياً.\nاضغط على زر التحديث (🔄) في الأعلى بعد رفع الملفات.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                                 ),
                               ),
                             )
@@ -3264,7 +3611,9 @@ jobs:
                               padding: const EdgeInsets.all(16),
                               itemCount: items.length,
                               itemBuilder: (context, idx) {
-                                final fileItem = items[idx];
+                                final fileItem = Map__LT__String, dynamic__GT__.from(items[idx]);
+                                final arabicName = ctrl.formatArabicFileTitle(fileItem, idx);
+                                fileItem['title'] = arabicName;
                                 final isPdf = fileItem['type'] == 'pdf';
                                 final isCached = ctrl.isFileCachedLocally(fileItem);
 
@@ -3282,23 +3631,15 @@ jobs:
                                       ),
                                     ),
                                     title: Text(
-                                      fileItem['title']?.toString() ?? '',
-                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                                      arabicName,
+                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
                                     ),
                                     subtitle: Padding(
                                       padding: const EdgeInsets.only(top: 4),
                                       child: Text(
                                         isCached
-                                            ? ctrl.tr(
-                                                '✅ محفوظ في الهاتف (يعمل بدون إنترنت)',
-                                                '✅ Enregistré hors-ligne',
-                                                '✅ Saved Offline',
-                                              )
-                                            : ctrl.tr(
-                                                '☁️ سحابي • اضغط للتحميل والمطالعة (يُحفظ تلقائياً)',
-                                                '☁️ Appuyez pour télécharger et ouvrir',
-                                                '☁️ Tap to download & view offline',
-                                              ),
+                                            ? '✅ محفوظ في الهاتف (يعمل بدون إنترنت)'
+                                            : '☁️ سحابي • اضغط للتحميل والمطالعة',
                                         style: TextStyle(
                                           fontWeight: FontWeight.bold,
                                           color: isCached ? const Color(0xFF147A42) : Colors.orange.shade800,
@@ -3307,7 +3648,6 @@ jobs:
                                     ),
                                     trailing: isCached
                                         ? IconButton(
-                                            tooltip: ctrl.tr('حذف من ذاكرة الهاتف', 'Supprimer du cache', 'Delete offline copy'),
                                             icon: const Icon(Icons.delete_outline, color: Colors.grey),
                                             onPressed: () =__GT__ ctrl.deleteCachedFile(fileItem),
                                           )
@@ -3342,7 +3682,7 @@ jobs:
                   borderRadius: BorderRadius.circular(14),
                   onTap: () =__GT__ setState(() =__GT__ _selectedTrimester = trim),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
                     decoration: BoxDecoration(
                       color: selected ? const Color(0xFF147A42) : Colors.white,
                       borderRadius: BorderRadius.circular(14),
@@ -3353,7 +3693,7 @@ jobs:
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
-                        fontSize: 13.5,
+                        fontSize: 12.5,
                         color: selected ? Colors.white : const Color(0xFF147A42),
                       ),
                     ),
@@ -3372,8 +3712,7 @@ jobs:
                 borderRadius: BorderRadius.circular(14),
                 onTap: () =__GT__ setState(() =__GT__ _selectedCategory = id),
                 child: Container(
-                  width: 82,
-                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
                   decoration: BoxDecoration(
                     color: selected
                         ? const Color(0xFFF5B800).withOpacity(0.25)
@@ -3391,11 +3730,11 @@ jobs:
                       Text(
                         label,
                         textAlign: TextAlign.center,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontWeight: FontWeight.w900,
-                          fontSize: 12.5,
+                          fontSize: 11.5,
                         ),
                       ),
                     ],
@@ -3490,14 +3829,48 @@ jobs:
               }
             }
 
+            // ميزة المكافأة 2: حفظ ملف الـ PDF في الهاتف للطباعة
+            void _triggerPrintExport(BuildContext context, AppController ctrl) {
+              AdHelper.showRewardedAd(
+                context,
+                rewardTitle: 'حفظ ملف الـ PDF في الهاتف للطباعة',
+                onRewardEarned: () async {
+                  final savedPath = await ctrl.exportPdfForPrinting(widget.fileItem);
+                  if (context.mounted) {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) =__GT__ AlertDialog(
+                        title: const Text('🖨️ تم حفظ الملف للطباعة بنجاح!'),
+                        content: Text('تم حفظ نسخة PDF جاهزة للطباعة في هاتفك في المسار:\n\n$savedPath'),
+                        actions: [
+                          FilledButton(
+                            onPressed: () =__GT__ Navigator.pop(ctx),
+                            child: const Text('حسناً'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                },
+              );
+            }
+
             @override
             Widget build(BuildContext context) {
+              final ctrl = AppScope.of(context);
               final title = widget.fileItem['title']?.toString() ?? '';
               final isPdf = widget.fileItem['type'] == 'pdf';
 
               return Scaffold(
                 appBar: AppBar(
                   title: Text(title),
+                  actions: [
+                    IconButton(
+                      tooltip: 'حفظ ملف الـ PDF في الهاتف للطباعة',
+                      icon: const Icon(Icons.print_rounded),
+                      onPressed: () =__GT__ _triggerPrintExport(context, ctrl),
+                    ),
+                  ],
                 ),
                 body: _loading
                     ? const Center(
@@ -3530,60 +3903,69 @@ jobs:
                               ),
                             ),
                           )
-                        : !isPdf
-                            ? InteractiveViewer(
-                                minScale: 0.8,
-                                maxScale: 5.0,
-                                child: Center(
-                                  child: Image.file(_localFile!, fit: BoxFit.contain),
-                                ),
-                              )
-                            : Column(
-                                children: [
-                                  Expanded(
-                                    child: InteractiveViewer(
-                                      minScale: 0.8,
-                                      maxScale: 5.0,
-                                      child: Center(
-                                        child: _pageBytes != null
-                                            ? Image.memory(_pageBytes!, fit: BoxFit.contain)
-                                            : const SizedBox.shrink(),
-                                      ),
-                                    ),
+                        : Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                                child: FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF147A42),
+                                    minimumSize: const Size(double.infinity, 42),
                                   ),
-                                  if (_pageCount __GT__ 1)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                      color: const Color(0xFF147A42),
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          IconButton(
-                                            color: Colors.white,
-                                            onPressed: _currentPage __GT__ 0
-                                                ? () =__GT__ _loadPage(_currentPage - 1)
-                                                : null,
-                                            icon: const Icon(Icons.navigate_before),
-                                          ),
-                                          Text(
-                                            'صفحة ${_currentPage + 1} من $_pageCount',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            color: Colors.white,
-                                            onPressed: _currentPage + 1 __LT__ _pageCount
-                                                ? () =__GT__ _loadPage(_currentPage + 1)
-                                                : null,
-                                            icon: const Icon(Icons.navigate_next),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                ],
+                                  onPressed: () =__GT__ _triggerPrintExport(context, ctrl),
+                                  icon: const Icon(Icons.print_rounded, size: 20),
+                                  label: const Text(
+                                    '🖨️ حفظ ملف الـ PDF في الهاتف للطباعة (شاهد إعلاناً قصيراً)',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                ),
                               ),
+                              Expanded(
+                                child: InteractiveViewer(
+                                  minScale: 0.8,
+                                  maxScale: 5.0,
+                                  child: Center(
+                                    child: !isPdf
+                                        ? Image.file(_localFile!, fit: BoxFit.contain)
+                                        : (_pageBytes != null
+                                            ? Image.memory(_pageBytes!, fit: BoxFit.contain)
+                                            : const SizedBox.shrink()),
+                                  ),
+                                ),
+                              ),
+                              if (isPdf && _pageCount __GT__ 1)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                  color: const Color(0xFF147A42),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      IconButton(
+                                        color: Colors.white,
+                                        onPressed: _currentPage __GT__ 0
+                                            ? () =__GT__ _loadPage(_currentPage - 1)
+                                            : null,
+                                        icon: const Icon(Icons.navigate_before),
+                                      ),
+                                      Text(
+                                        'صفحة ${_currentPage + 1} من $_pageCount',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        color: Colors.white,
+                                        onPressed: _currentPage + 1 __LT__ _pageCount
+                                            ? () =__GT__ _loadPage(_currentPage + 1)
+                                            : null,
+                                        icon: const Icon(Icons.navigate_next),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
               );
             }
           }
@@ -4027,6 +4409,68 @@ jobs:
                             ),
                           ),
                           const SizedBox(height: 12),
+
+                          // ميزة المكافأة 4: كم أحتاج في الفصل القادم للنجاح؟
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFF5B800),
+                              foregroundColor: Colors.black87,
+                              minimumSize: const Size(double.infinity, 48),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            onPressed: () {
+                              AdHelper.showRewardedAd(
+                                context,
+                                rewardTitle: 'حاسبة الأهداف الذكية للفصل القادم',
+                                onRewardEarned: () {
+                                  final targetPass = isPrimary ? 5.0 : 10.0;
+                                  final targetGood = isPrimary ? 7.0 : 14.0;
+                                  final neededForPass = ((targetPass * 2) - finalAverage).clamp(0.0, maxScale.toDouble());
+                                  final neededForGood = ((targetGood * 2) - finalAverage).clamp(0.0, maxScale.toDouble());
+
+                                  showDialog(
+                                    context: context,
+                                    builder: (ctx) =__GT__ AlertDialog(
+                                      title: const Text('🎯 كم أحتاج في الفصل القادم؟'),
+                                      content: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text('معدلك الحالي: ${finalAverage.toStringAsFixed(2)} / $maxScale\n'),
+                                          Text(
+                                            '✅ لضمان معدل النجاح ($targetPass/$maxScale):\n'
+                                            'تحتاج في الفصل القادم إلى معدل: ${neededForPass.toStringAsFixed(2)} / $maxScale\n',
+                                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF147A42)),
+                                          ),
+                                          Text(
+                                            '🌟 للوصول إلى تقدير جيد ($targetGood/$maxScale):\n'
+                                            'تحتاج في الفصل القادم إلى معدل: ${neededForGood.toStringAsFixed(2)} / $maxScale\n',
+                                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo),
+                                          ),
+                                          const Text(
+                                            '💡 نصيحة: ركّز على رفع علامتك بـ +2 نقاط في المواد ذات المعاملات العالية لأنها تضاعف مجموع نقاطك بسرعة!',
+                                            style: TextStyle(fontSize: 13),
+                                          ),
+                                        ],
+                                      ),
+                                      actions: [
+                                        FilledButton(
+                                          onPressed: () =__GT__ Navigator.pop(ctx),
+                                          child: const Text('حسناً، فهمت'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                            icon: const Icon(Icons.track_changes_rounded),
+                            label: const Text(
+                              '🎯 كم أحتاج في الفصل القادم للنجاح؟ (شاهد إعلاناً)',
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.white,
@@ -4676,7 +5120,7 @@ jobs:
                             const SizedBox(height: 12),
                             Text(
                               ctrl.tr(
-                                'منصة تعليمية جزائرية شاملة صُممت لمرافقة التلاميذ في جميع الأطوار التعليمية الثلاثة (الابتدائي، المتوسط، الثانوي) مع الدروس، الملخصات، الفروض، الاختبارات، الكتب المدرسية، ومواضيع الشهادات الرسمية من 2008 إلى 2026، بالإضافة إلى حاسبة المعدل المعتمدة.\n\n'
+                                'منصة تعليمية جزائرية شاملة صُممت لمرافقة التلاميذ في جميع الأطوار التعليمية الثلاثة (الابتدائي، المتوسط، الثانوي) مع الدروس والملخصات، الفروض والاختبارات، الكتب المدرسية، ومواضيع الشهادات الرسمية من 2008 إلى 2026، بالإضافة إلى حاسبة المعدل المعتمدة.\n\n'
                                 'إخلاء مسؤولية: هذا التطبيق مبادرة تعليمية مستقلة وغير تابع لوزارة التربية الوطنية أو الديوان الوطني للامتحانات والمسابقات (ONEC).',
                                 'Study DZ est une application éducative algérienne couvrant le Primaire, le Moyen (BEM) et le Secondaire (BAC).',
                                 'Study DZ is an Algerian educational platform covering Primary, Middle (BEM), and High School (BAC) levels.',
@@ -4784,8 +5228,8 @@ jobs:
                   applicationId = "dz.studydz.app"
                   minSdk = 23
                   targetSdk = 34
-                  versionCode = 6
-                  versionName = "6.0.0"
+                  versionCode = 7
+                  versionName = "7.0.0"
                   multiDexEnabled true
               }
 
