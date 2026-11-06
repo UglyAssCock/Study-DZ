@@ -3962,7 +3962,7 @@ jobs:
                                   label: const Text(
                                     '🖨️ حفظ ملف الـ PDF في الهاتف للطباعة (شاهد إعلاناً قصيراً)',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-     class LevelSubjectsPage extends StatefulWidget {
+                                    class LevelSubjectsPage extends StatefulWidget {
             final String levelCode;
 
             const LevelSubjectsPage({super.key, required this.levelCode});
