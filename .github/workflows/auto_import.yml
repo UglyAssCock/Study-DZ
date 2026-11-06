@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       extra_url:
-        description: 'Paste ANY category or exam URL here (e.g. https://eddirasa.com/ens-pri/fifth-primary/maths/exams-term-1/)'
+        description: 'Paste 1 or more category/exam URLs here (separated by spaces or commas)'
         required: false
-        default: 'https://eddirasa.com/ens-pri/fifth-primary/maths/exams-term-1/'
+        default: ''
       site_choice:
         description: 'Used when extra_url is empty: ALL, eddirasa, dzexams, dzmadrassa, bacdz, educationdz'
         required: true
@@ -21,9 +21,9 @@ on:
         required: true
         default: 'ALL'
       max_files_per_run:
-        description: 'Max new PDFs to save in this run (e.g. 200)'
+        description: 'Max new PDFs to save in this run (e.g. 600)'
         required: true
-        default: '200'
+        default: '600'
 
 permissions:
   contents: write
@@ -51,7 +51,6 @@ jobs:
           import os
           import re
           import io
-          import shutil
           import hashlib
           import threading
           import urllib.parse
@@ -79,9 +78,7 @@ jobs:
           subprocess.run(["git", "config", "user.name", "StudyDZ-Harvester"], check=False)
           subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
 
-          # =====================================================================
-          # STEP 1: INDEX EXISTING FILES & REMOVE DUPLICATES
-          # =====================================================================
+          # Index existing valid PDFs by MD5 content hash
           for root, _, fnames in os.walk("files"):
               for fn in sorted(fnames):
                   if not fn.lower().endswith(".pdf"):
@@ -94,7 +91,7 @@ jobs:
                           os.remove(p)
                           continue
                       md5_h = hashlib.md5(raw).hexdigest()
-                      if md5_h in content_hashes or fn.lower() in seen_canonical_names:
+                      if md5_h in content_hashes:
                           os.remove(p)
                           continue
                       content_hashes.add(md5_h)
@@ -114,9 +111,9 @@ jobs:
           saved_total = 0
 
           try:
-              max_to_save = int(os.environ.get("MAX_FILES", "200").strip() or "200")
+              max_to_save = int(os.environ.get("MAX_FILES", "600").strip() or "600")
           except Exception:
-              max_to_save = 200
+              max_to_save = 600
 
           site_choice = (os.environ.get("SITE_CHOICE", "ALL").strip() or "ALL").lower()
           target_filter = (os.environ.get("TARGET_FILTER", "ALL").strip() or "ALL").lower()
@@ -144,10 +141,13 @@ jobs:
               md5_hex = hashlib.md5(raw_bytes).hexdigest()
               base_name = os.path.basename(out_filepath).lower()
               with lock:
-                  if md5_hex in content_hashes or base_name in seen_canonical_names:
+                  if md5_hex in content_hashes:
                       return False
-                  if os.path.exists(out_filepath):
-                      return False
+                  # If same filename exists but content is different, append hash so we never lose it
+                  if base_name in seen_canonical_names or os.path.exists(out_filepath):
+                      stem, ext = os.path.splitext(out_filepath)
+                      out_filepath = f"{stem}_{md5_hex[:4]}{ext}"
+                      base_name = os.path.basename(out_filepath).lower()
                   os.makedirs(os.path.dirname(out_filepath), exist_ok=True)
                   with open(out_filepath, "wb") as f:
                       f.write(raw_bytes)
@@ -167,37 +167,36 @@ jobs:
                       subprocess.run(["git", "commit", "-m", msg], check=False)
                       subprocess.run(["git", "push"], check=False)
 
-          # Complete Arabic + English (Eddirasa / DzExams / DzMadrassa) rules
           level_rules = [
-              ("1ap", ["first-primary", "1ere-primaire", "الأولى ابتدائي", "اولى ابتدائي", "1 ابتدائي", "1 إبتدائي", "سنة أولى ابتدائي", "1ap", "/1ap"]),
-              ("2ap", ["second-primary", "2eme-primaire", "الثانية ابتدائي", "ثانية ابتدائي", "2 ابتدائي", "2 إبتدائي", "سنة ثانية ابتدائي", "2ap", "/2ap"]),
-              ("3ap", ["third-primary", "3eme-primaire", "الثالثة ابتدائي", "ثالثة ابتدائي", "3 ابتدائي", "3 إبتدائي", "سنة ثالثة ابتدائي", "3ap", "/3ap"]),
-              ("4ap", ["fourth-primary", "4eme-primaire", "الرابعة ابتدائي", "رابعة ابتدائي", "4 ابتدائي", "4 إبتدائي", "سنة رابعة ابتدائي", "4ap", "/4ap"]),
-              ("5ap", ["fifth-primary", "5eme-primaire", "الخامسة ابتدائي", "خامسة ابتدائي", "5 ابتدائي", "5 إبتدائي", "سنة خامسة ابتدائي", "5ap", "/5ap"]),
-              ("1am", ["first-middle", "first-am", "1ere-moyen", "الأولى متوسط", "اولى متوسط", "1 متوسط", "سنة أولى متوسط", "1am", "/1am"]),
-              ("2am", ["second-middle", "second-am", "2eme-moyen", "الثانية متوسط", "ثانية متوسط", "2 متوسط", "سنة ثانية متوسط", "2am", "/2am"]),
-              ("3am", ["third-middle", "third-am", "3eme-moyen", "الثالثة متوسط", "ثالثة متوسط", "3 متوسط", "سنة ثالثة متوسط", "3am", "/3am"]),
-              ("4am", ["fourth-middle", "fourth-am", "4eme-moyen", "الرابعة متوسط", "رابعة متوسط", "4 متوسط", "سنة رابعة متوسط", "4am", "/4am"]),
-              ("1as", ["first-secondary", "first-as", "1ere-secondaire", "الأولى ثانوي", "اولى ثانوي", "1 ثانوي", "سنة أولى ثانوي", "1as", "/1as"]),
-              ("2as", ["second-secondary", "second-as", "2eme-secondaire", "الثانية ثانوي", "ثانية ثانوي", "2 ثانوي", "سنة ثانية ثانوي", "2as", "/2as"]),
-              ("3as", ["third-secondary", "third-as", "3eme-secondaire", "الثالثة ثانوي", "ثالثة ثانوي", "3 ثانوي", "سنة ثالثة ثانوي", "3as", "/3as"]),
+              ("1ap", ["first-primary", "1ere-primaire", "الأولى ابتدائي", "اولى ابتدائي", "1 ابتدائي", "1 إبتدائي", "سنة أولى ابتدائي", "/1ap/"]),
+              ("2ap", ["second-primary", "2eme-primaire", "الثانية ابتدائي", "ثانية ابتدائي", "2 ابتدائي", "2 إبتدائي", "سنة ثانية ابتدائي", "/2ap/"]),
+              ("3ap", ["third-primary", "3eme-primaire", "الثالثة ابتدائي", "ثالثة ابتدائي", "3 ابتدائي", "3 إبتدائي", "سنة ثالثة ابتدائي", "/3ap/"]),
+              ("4ap", ["fourth-primary", "4eme-primaire", "الرابعة ابتدائي", "رابعة ابتدائي", "4 ابتدائي", "4 إبتدائي", "سنة رابعة ابتدائي", "/4ap/"]),
+              ("5ap", ["fifth-primary", "5eme-primaire", "الخامسة ابتدائي", "خامسة ابتدائي", "5 ابتدائي", "5 إبتدائي", "سنة خامسة ابتدائي", "/5ap/"]),
+              ("1am", ["first-middle", "first-medium", "first-am", "1ere-moyen", "الأولى متوسط", "اولى متوسط", "1 متوسط", "سنة أولى متوسط", "/1am/"]),
+              ("2am", ["second-middle", "second-medium", "second-am", "2eme-moyen", "الثانية متوسط", "ثانية متوسط", "2 متوسط", "سنة ثانية متوسط", "/2am/"]),
+              ("3am", ["third-middle", "third-medium", "third-am", "3eme-moyen", "الثالثة متوسط", "ثالثة متوسط", "3 متوسط", "سنة ثالثة متوسط", "/3am/"]),
+              ("4am", ["fourth-middle", "fourth-medium", "fourth-am", "4eme-moyen", "الرابعة متوسط", "رابعة متوسط", "4 متوسط", "سنة رابعة متوسط", "/4am/"]),
+              ("1as", ["first-secondary", "first-as", "1ere-secondaire", "الأولى ثانوي", "اولى ثانوي", "1 ثانوي", "سنة أولى ثانوي", "/1as/"]),
+              ("2as", ["second-secondary", "second-as", "2eme-secondaire", "الثانية ثانوي", "ثانية ثانوي", "2 ثانوي", "سنة ثانية ثانوي", "/2as/"]),
+              ("3as", ["third-secondary", "third-as", "3eme-secondaire", "الثالثة ثانوي", "ثالثة ثانوي", "3 ثانوي", "سنة ثالثة ثانوي", "/3as/"]),
           ]
 
           subject_rules = [
-              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية", "natural-sciences", "sciences-naturelles", "snv", "science", "sci"]),
-              ("physics", ["العلوم الفيزيائية", "الفيزياء", "فيزياء", "تربية علمية", "التربية العلمية", "physique", "physics", "phys"]),
-              ("math", ["الرياضيات", "رياضيات", "maths", "mathematiques", "mathematics", "math"]),
-              ("arabic", ["اللغة العربية", "الأدب العربي", "عربية", "arabic", "arabe"]),
-              ("french", ["اللغة الفرنسية", "فرنسية", "francais", "french"]),
-              ("english", ["اللغة الإنجليزية", "اللغة الانجليزية", "إنجليزية", "انجليزية", "anglais", "english"]),
-              ("hisgeo", ["التاريخ والجغرافيا", "التاريخ و الجغرافيا", "تاريخ", "جغرافيا", "history-geography", "histoire", "hisgeo", "history"]),
-              ("islamic", ["العلوم الإسلامية", "التربية الإسلامية", "التربية الاسلامية", "شريعة", "islamic-education", "islamia", "islamic", "sciences-islamiques"]),
-              ("philo", ["الفلسفة", "فلسفة", "philosophie", "philosophy", "philo"]),
-              ("civics", ["التربية المدنية", "مدنية", "civic-education", "civique", "civics", "education-civique"]),
+              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية", "natural-sciences", "sciences-naturelles", "snv", "/science/", "/sciences/"]),
+              ("physics", ["العلوم الفيزيائية", "الفيزياء", "فيزياء", "تربية علمية", "التربية العلمية", "scientific-education", "physique", "physics", "/phys/"]),
+              ("math", ["الرياضيات", "رياضيات", "/maths/", "mathematiques", "mathematics", "/math/"]),
+              ("arabic", ["اللغة العربية", "الأدب العربي", "عربية", "/arabic/", "/arabe/"]),
+              ("french", ["اللغة الفرنسية", "فرنسية", "francais", "/french/"]),
+              ("english", ["اللغة الإنجليزية", "اللغة الانجليزية", "إنجليزية", "انجليزية", "anglais", "/english/"]),
+              ("hisgeo", ["التاريخ والجغرافيا", "التاريخ و الجغرافيا", "تاريخ", "جغرافيا", "history-geography", "histoire", "hisgeo", "/history/"]),
+              ("islamic", ["العلوم الإسلامية", "التربية الإسلامية", "التربية الاسلامية", "شريعة", "islamic-education", "islamia", "/islamic/", "sciences-islamiques"]),
+              ("philo", ["الفلسفة", "فلسفة", "philosophie", "philosophy", "/philo/"]),
+              ("civics", ["التربية المدنية", "مدنية", "civic-education", "civique", "/civics/", "education-civique"]),
               ("cs", ["الإعلام الآلي", "الاعلام الالي", "معلوماتية", "computer-science", "informatique"]),
               ("accounting", ["التسيير المحاسبي", "محاسبة", "accounting", "comptabilite", "gestion"]),
               ("economy", ["الاقتصاد والمناجمنت", "الإقتصاد والمناجمنت", "اقتصاد", "economics", "economie"]),
-              ("law", ["القانون", "القانــــون", "droit", "law"]),
+              ("law", ["القانون", "القانــــون", "droit", "/law/"]),
               ("engineering", ["الهندسة", "هندسة", "تكنولوجيا", "engineering", "genie", "technologie"]),
               ("amazigh", ["اللغة الأمازيغية", "أمازيغية", "امازيغية", "amazigh", "tamazight"]),
               ("third_lang", ["اللغة الإيطالية", "اللغة الإسبانية", "اللغة الألمانية", "اسبانية", "المانية", "ايطالية", "espagnol", "allemand", "italien", "spanish", "german", "italian"]),
@@ -213,6 +212,24 @@ jobs:
               ("mt", ["شعبة رياضيات", "شعبة الرياضيات", "/mathematics/"]),
           ]
 
+          def detect_trimester_strict(text, fallback_trim="t1"):
+              t = text.lower()
+              # 1. Check URL slugs first (highest accuracy, no ambiguity)
+              if any(w in t for w in ["term-3", "trimestre-3", "3-trimestre", "3eme-trimestre", "_t3", "-t3", "/t3/"]):
+                  return "t3"
+              if any(w in t for w in ["term-2", "trimestre-2", "2-trimestre", "2eme-trimestre", "_t2", "-t2", "/t2/"]):
+                  return "t2"
+              if any(w in t for w in ["term-1", "trimestre-1", "1-trimestre", "1er-trimestre", "_t1", "-t1", "/t1/"]):
+                  return "t1"
+              # 2. Check explicit Arabic trimester phrases (check 3rd before 2nd before 1st)
+              if any(w in t for w in ["الفصل الثالث", "الثلاثي الثالث", "فصل 3", "الفصل 3"]):
+                  return "t3"
+              if any(w in t for w in ["الفصل الثاني", "الثلاثي الثاني", "فصل 2", "الفصل 2"]):
+                  return "t2"
+              if any(w in t for w in ["الفصل الأول", "الفصل الاول", "الثلاثي الأول", "فصل 1", "الفصل 1"]):
+                  return "t1"
+              return fallback_trim
+
           def analyze_metadata(text, parent_meta=None):
               t = text.lower()
               is_solution = any(
@@ -220,19 +237,18 @@ jobs:
                   for w in ["التصحيح فقط", "تصحيح موضوع", "_sol.", "-sol.", "corrige-"]
               )
 
-              # Check if Trimester keyword is present (if so, it's a Trimester file, NOT an official archive)
               has_trimester = any(
                   w in t
                   for w in [
                       "term-1", "term-2", "term-3",
                       "trimestre-1", "trimestre-2", "trimestre-3",
-                      "الفصل الأول", "الفصل الثاني", "الفصل الثالث",
+                      "الفصل الأول", "الفصل الاول", "الفصل الثاني", "الفصل الثالث",
                       "الثلاثي الأول", "الثلاثي الثاني", "الثلاثي الثالث",
                   ]
               )
 
               archive_type = None
-              if not has_trimester:
+              if not has_trimester and not (parent_meta and parent_meta.get("has_trimester")):
                   if any(w in t for w in ["بكالوريا", "البكالوريا", "/bac-", "/bac/", "bac-solutions"]):
                       archive_type = "bac"
                   elif any(w in t for w in ["شهادة التعليم المتوسط", "البيام", "/bem-", "/bem/", "bem-solutions"]):
@@ -275,13 +291,8 @@ jobs:
                       stream = code
                       break
 
-              trimester = parent_meta.get("trimester", "t1") if parent_meta else "t1"
-              if any(w in t for w in ["term-2", "trimestre-2", "2-trimestre", "الفصل الثاني", "الثلاثي الثاني", "ف2", "t2", "2eme"]):
-                  trimester = "t2"
-              elif any(w in t for w in ["term-3", "trimestre-3", "3-trimestre", "الفصل الثالث", "الثلاثي الثالث", "ف3", "t3", "3eme"]):
-                  trimester = "t3"
-              elif any(w in t for w in ["term-1", "trimestre-1", "1-trimestre", "الفصل الأول", "الثلاثي الأول", "ف1", "t1", "1er"]):
-                  trimester = "t1"
+              fallback_t = parent_meta.get("trimester", "t1") if parent_meta else "t1"
+              trimester = detect_trimester_strict(t, fallback_trim=fallback_t)
 
               category = parent_meta.get("category", "exam") if parent_meta else "exam"
               if any(w in t for w in ["books", "book", "livre", "manuel", "كتاب", "الكتاب المدرسي", "كتب"]):
@@ -297,6 +308,7 @@ jobs:
 
               return {
                   "is_solution": is_solution,
+                  "has_trimester": has_trimester or (parent_meta.get("has_trimester", False) if parent_meta else False),
                   "year": year,
                   "archive_type": archive_type,
                   "level": level,
@@ -324,13 +336,7 @@ jobs:
               return os.path.join(folder, f"{meta['level']}_{subj}_{meta['trimester']}_{meta['category']}{sfx}.pdf")
 
           def download_or_convert_to_pdf(page_url, out_filepath):
-              base_name = os.path.basename(out_filepath).lower()
-              with lock:
-                  if base_name in seen_canonical_names or os.path.exists(out_filepath):
-                      return False
-
               try:
-                  # 1. Check ?file= parameter
                   parsed_q = urllib.parse.parse_qs(urllib.parse.urlparse(page_url).query)
                   if "file" in parsed_q:
                       direct_u = urllib.parse.urljoin(page_url, parsed_q["file"][0])
@@ -338,7 +344,6 @@ jobs:
                       if pr.status_code == 200 and register_unique_pdf_bytes(pr.content, out_filepath):
                           return True
 
-                  # 2. Direct .pdf URL
                   if page_url.lower().split("?")[0].endswith(".pdf"):
                       pr = requests.get(page_url, headers=headers, timeout=20)
                       if pr.status_code == 200 and register_unique_pdf_bytes(pr.content, out_filepath):
@@ -350,15 +355,12 @@ jobs:
                   if r.content[:4] == b"%PDF":
                       return register_unique_pdf_bytes(r.content, out_filepath)
 
-                  # Unescape JSON slashes (https:\/\/eddirasa.com\/wp-content\/... -> https://eddirasa.com/wp-content/...)
                   clean_html = r.text.replace(r"\/", "/")
 
-                  # 3. Search unescaped HTML for absolute AND relative .pdf URLs
                   abs_pdfs = re.findall(r'https?://[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
                   rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/)[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
                   all_pdf_candidates = abs_pdfs + [urllib.parse.urljoin(page_url, rp) for rp in rel_pdfs]
 
-                  # Put non-correction PDFs first
                   subject_pdfs = [u for u in all_pdf_candidates if not any(w in u.lower() for w in ["_cor", "-cor", "_sol", "-sol", "corrige"])]
                   for pdf_candidate in subject_pdfs:
                       pr = requests.get(pdf_candidate, headers=headers, timeout=20)
@@ -367,8 +369,7 @@ jobs:
 
                   soup = BeautifulSoup(r.text, "html.parser")
 
-                  # 4. Check all tags and data-* attributes (data-pdf, data-url, data-file, data-src, href, src)
-                  for tag in soup.find_all(["a", "button", "div", "iframe", "embed", "object"]):
+                  for tag in soup.find_all(["a", "button", "iframe", "embed", "object"]):
                       tag_text = tag.get_text(" ", strip=True)
                       if any(cor_w in tag_text for cor_w in ["عرض التصحيح", "تحميل التصحيح", "الحل النموذجي"]):
                           continue
@@ -402,7 +403,6 @@ jobs:
                               if pr.status_code == 200 and register_unique_pdf_bytes(pr.content, out_filepath):
                                   return True
 
-                  # 5. Fallback: Convert scanned exam images inside the page into a single clean PDF
                   content_box = (
                       soup.find("div", class_=re.compile(r"entry-content|post-content|article|main|sujet"))
                       or soup
@@ -441,15 +441,26 @@ jobs:
                   pass
               return False
 
-          def process_single_article_url(url, title_hint="", parent_meta=None):
+          def process_single_article_url(url, title_hint="", parent_meta=None, ignore_visited=False):
               global saved_total
               if saved_total not in range(0, max_to_save):
                   return False
-              if is_visited(url):
+              if not ignore_visited and is_visited(url):
                   return False
 
               combined = title_hint + " " + urllib.parse.unquote(url)
               meta = analyze_metadata(combined, parent_meta=parent_meta)
+
+              # Always lock onto parent_meta's level, subject, and trimester when crawling a specific user hub
+              if parent_meta:
+                  if parent_meta.get("level"):
+                      meta["level"] = parent_meta["level"]
+                  if parent_meta.get("subject"):
+                      meta["subject"] = parent_meta["subject"]
+                  if parent_meta.get("trimester"):
+                      meta["trimester"] = parent_meta["trimester"]
+                  if parent_meta.get("category"):
+                      meta["category"] = parent_meta["category"]
 
               if not meta["subject"]:
                   try:
@@ -459,7 +470,7 @@ jobs:
                           return False
                       soup = BeautifulSoup(r.text, "html.parser")
                       page_title = soup.title.string if soup.title else ""
-                      h1_txt = " ".join([h.get_text(" ", strip=True) for h in soup.find_all(["h1", "h2"])])
+                      h1_txt = " ".join([h.get_text(" ", strip=True) for h in soup.find_all(["h1"])])
                       combined = page_title + " " + h1_txt + " " + combined
                       meta = analyze_metadata(combined, parent_meta=parent_meta)
                   except Exception:
@@ -470,7 +481,6 @@ jobs:
                   mark_visited(url)
                   return False
 
-              # Extract exam number if present (e.g. رقم 144 -> 144), otherwise short hash
               num_match = re.search(r'رقم\s*(\d+)', title_hint)
               short_tag = num_match.group(1) if num_match else url_hash(url)[:5]
 
@@ -486,9 +496,6 @@ jobs:
                       git_commit_and_push(f"Imported batch: +{curr} unique PDFs")
               return ok
 
-          # =====================================================================
-          # SMART HUB CRAWLER FOR ANY USER-PASTED LINK (Method 1 & Method 2)
-          # =====================================================================
           def crawl_user_pasted_url(hub_url):
               global saved_total
               print("====================================================")
@@ -499,7 +506,6 @@ jobs:
                       print("Failed to fetch URL, status:", r.status_code)
                       return
 
-                  # If the URL itself is a direct PDF
                   if r.content[:4] == b"%PDF":
                       meta = analyze_metadata(urllib.parse.unquote(hub_url))
                       out_p = build_filepath(meta, url_hash(hub_url)[:5])
@@ -510,34 +516,36 @@ jobs:
 
                   soup = BeautifulSoup(r.text, "html.parser")
                   page_title = soup.title.string if soup.title else ""
-                  h1_txt = " ".join([h.get_text(" ", strip=True) for h in soup.find_all(["h1", "h2"])])
+                  # Only read <h1> (never <h2> which contains 'See Also / طالع أيضاً' links to other trimesters!)
+                  h1_txt = " ".join([h.get_text(" ", strip=True) for h in soup.find_all(["h1"])])
 
-                  # Determine the parent category metadata from the URL + Title + H1
                   parent_context = urllib.parse.unquote(hub_url) + " " + page_title + " " + h1_txt
                   parent_meta = analyze_metadata(parent_context)
-                  print("Detected Page Metadata:", parent_meta)
+                  print("Strictly Detected Page Metadata:", parent_meta)
 
-                  # Remove nav/header/footer/sidebar so we only collect exam/lesson links from the main body
                   for nav_tag in soup.find_all(["nav", "header", "footer", "aside"]):
                       nav_tag.decompose()
 
                   sub_items = []
                   seen_sub_urls = set()
 
-                  # 1. Collect all <a href="..."> links inside the main page content
                   for a in soup.find_all("a"):
                       href = a.get("href") or a.get("data-url") or a.get("data-href") or ""
                       txt = a.get_text(" ", strip=True)
                       if not href or href.startswith("#") or href.startswith("javascript"):
                           continue
-                      if any(skip in txt for skip in ["إضافة موضوع", "اتصل بنا", "سياسة الخصوصية", "حسابي", "منتدى"]):
+                      if any(skip in txt for skip in ["إضافة موضوع", "اتصل بنا", "سياسة الخصوصية", "حسابي", "منتدى", "طالع أيضًا"]):
                           continue
 
                       full_u = urllib.parse.urljoin(hub_url, href.replace(r"\/", "/"))
-                      if full_u == hub_url or full_u in seen_sub_urls:
+                      if full_u.rstrip("/") == hub_url.rstrip("/") or full_u in seen_sub_urls:
                           continue
 
-                      # Keep links that belong to the same site and look like exam/lesson items or child paths
+                      # Skip links that jump to a different trimester hub (e.g. 'See Also: Trimester 1 / 2')
+                      sub_trim = detect_trimester_strict(urllib.parse.unquote(full_u) + " " + txt, fallback_trim=parent_meta["trimester"])
+                      if sub_trim != parent_meta["trimester"] and "رقم" not in txt:
+                          continue
+
                       is_child_path = full_u.startswith(hub_url.rstrip("/"))
                       has_study_word = any(
                           w in (txt + " " + urllib.parse.unquote(full_u)).lower()
@@ -550,7 +558,6 @@ jobs:
                           seen_sub_urls.add(full_u)
                           sub_items.append((full_u, txt))
 
-                  # 2. Also check if direct PDF URLs are embedded directly in the hub page's HTML/JSON
                   clean_html = r.text.replace(r"\/", "/")
                   direct_pdfs = re.findall(r'https?://[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
                   rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/)[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
@@ -568,18 +575,16 @@ jobs:
                               if saved_total not in range(0, max_to_save):
                                   break
                               futures.append(
-                                  executor.submit(process_single_article_url, sub_u, sub_txt, parent_meta)
+                                  executor.submit(process_single_article_url, sub_u, sub_txt, parent_meta, True)
                               )
                           for _ in as_completed(futures):
                               pass
                   else:
-                      # If no sub-links were found, treat hub_url itself as a single exam page
-                      process_single_article_url(hub_url, page_title, parent_meta)
+                      process_single_article_url(hub_url, page_title, parent_meta, True)
 
               except Exception as e:
                   print("Error crawling user URL:", hub_url, e)
 
-          # Collect user-supplied URLs from Method 1 (extra_url) and Method 2 (links.txt)
           user_urls = []
           extra_u = os.environ.get("EXTRA_URL", "").strip()
           if extra_u:
@@ -594,9 +599,9 @@ jobs:
                       if clean_l.startswith("http") and clean_l not in user_urls:
                           user_urls.append(clean_l)
 
-          # If user supplied URLs via extra_url or links.txt, crawl them immediately!
           if user_urls and event_name in ["workflow_dispatch", "push"]:
-              print(f"Running in Custom Link Mode for {len(user_urls)} URL(s)...")
+              max_to_save = max(max_to_save, 1000)
+              print(f"Running in Custom Link Mode for {len(user_urls)} URL(s) (max {max_to_save} files)...")
               for u in user_urls:
                   if saved_total not in range(0, max_to_save):
                       break
@@ -604,13 +609,7 @@ jobs:
               git_commit_and_push(f"Imported +{saved_total} PDFs from custom links")
               print("Custom Link Import Finished! Total new unique PDFs added:", saved_total)
           else:
-              # Scheduled background mode: crawl all 5 sites automatically
               print("Running scheduled background 5-site harvest...")
-              for u in user_urls:
-                  if saved_total not in range(0, max_to_save):
-                      break
-                  crawl_user_pasted_url(u)
-
               for domain in ["https://eddirasa.com", "https://bacdz.net", "https://educationdz.com", "https://dzmadrassa.com"]:
                   if saved_total not in range(0, max_to_save):
                       break
@@ -629,7 +628,7 @@ jobs:
                           if not unvisited:
                               continue
                           with ThreadPoolExecutor(max_workers=10) as ex:
-                              futs = [ex.submit(process_single_article_url, lnk, ttl) for lnk, ttl in unvisited]
+                              futs = [ex.submit(process_single_article_url, lnk, ttl, None, False) for lnk, ttl in unvisited]
                               for _ in as_completed(futs):
                                   pass
                       except Exception:
