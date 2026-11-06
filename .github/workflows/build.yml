@@ -3977,7 +3977,7 @@ jobs:
             @override
             void initState() {
               super.initState();
-              _selectedStream = widget.levelCode == '1AS' ? 'TC_ST' : 'SE';
+              if (widget.levelCode == '1AS') { _selectedStream = 'TC_ST'; } else { _selectedStream = 'SE'; }
             }
 
             @override
