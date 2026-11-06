@@ -1,4 +1,4 @@
-name: build-apk
+ame: build-apk
 
 on:
   push:
@@ -1104,17 +1104,30 @@ jobs:
               }
 
               String detectedStream = 'ALL';
-              if (['_lp', '-lp', '/lp/', 'آداب', 'اداب'].any((k) =__GT__ token.contains(k))) {
+              if (['_tc_l', '-tc_l', 'literary-1as', 'ج_م_آ', 'آداب_1'].any((k) =__GT__ token.contains(k))) {
+                detectedStream = 'TC_L';
+              } else if (['_tc_st', '-tc_st', 'science-1as', 'ج_م_ع'].any((k) =__GT__ token.contains(k))) {
+                detectedStream = 'TC_ST';
+              } else if (['_lp', '-lp', '/lp/', 'literary', 'آداب', 'اداب'].any((k) =__GT__ token.contains(k))) {
                 detectedStream = 'LP';
-              } else if (['_se', '-se', '/se/', 'تجريبية'].any((k) =__GT__ token.contains(k))) {
-                detectedStream = 'SE';
-              } else if (['_tm', '-tm', '/tm/', 'تقني'].any((k) =__GT__ token.contains(k))) {
-                detectedStream = 'TM';
-              } else if (['_mt', '-mt', 'smath', '/mt/'].any((k) =__GT__ token.contains(k))) {
-                detectedStream = 'MATH';
-              } else if (['_ge', '-ge', '/ge/', 'تسيير'].any((k) =__GT__ token.contains(k))) {
+              } else if (['_ge', '-ge', '/ge/', 'management', 'تسيير'].any((k) =__GT__ token.contains(k))) {
                 detectedStream = 'GE';
-              } else if (['_le', '-le', '/le/', 'لغات'].any((k) =__GT__ token.contains(k))) {
+              } else if (['_le', '-le', '/le/', 'foreign', 'لغات'].any((k) =__GT__ token.contains(k))) {
+                detectedStream = 'LE';
+              } else if (['_tm', '-tm', '/tm/', 'tech-math', 'تقني'].any((k) =__GT__ token.contains(k))) {
+                detectedStream = 'TM';
+              } else if (['_mt', '-mt', 'smath', '/mt/', 'exams-math', 'tests-math'].any((k) =__GT__ token.contains(k))) {
+                detectedStream = 'MATH';
+              } else if (['_se', '-se', '/se/', 'exams-science', 'tests-science', 'تجريبية'].any((k) =__GT__ token.contains(k))) {
+                detectedStream = 'SE';
+              }
+
+              // قفل المواد الخاصة بكل شعبة في التعليم الثانوي حتى لا تظهر أبداً في شعبة خاطئة
+              if (['accounting', 'economy', 'law'].contains(detectedSubject)) {
+                detectedStream = 'GE';
+              } else if (detectedSubject == 'engineering') {
+                detectedStream = detectedLevel == '1AS' ? 'TC_ST' : 'TM';
+              } else if (detectedSubject == 'third_lang') {
                 detectedStream = 'LE';
               }
 
@@ -1150,10 +1163,10 @@ jobs:
               }
 
               int detectedTrim = 1;
-              if (['t2', 'f2', 'trim2', 'ف2', 'فصل2', 'ثاني'].any((k) =__GT__ token.contains(k))) {
-                detectedTrim = 2;
-              } else if (['t3', 'f3', 'trim3', 'ف3', 'فصل3', 'ثالث'].any((k) =__GT__ token.contains(k))) {
+              if (['_t3', '-t3', 'trim3', 'فصل3', 'الفصل_الثالث', 'ثالث'].any((k) =__GT__ token.contains(k))) {
                 detectedTrim = 3;
+              } else if (['_t2', '-t2', 'trim2', 'فصل2', 'الفصل_الثاني'].any((k) =__GT__ token.contains(k))) {
+                detectedTrim = 2;
               }
 
               final rawTitle = dotIdx != -1 ? fname.substring(0, dotIdx) : fname;
@@ -1183,34 +1196,63 @@ jobs:
               required String streamCode,
               required int year,
             }) {
-              return uploadedFiles.where((f) {
-                if (f['is_archive'] != true) return false;
-                if ((f['archive_cycle']?.toString() ?? '') != cycleCode) return false;
-                if ((f['subject']?.toString() ?? '') != subjectId) return false;
+              final seenKeys = __LT__String__GT__{};
+              final result = __LT__Map__LT__String, dynamic__GT____GT__[];
+              for (final f in uploadedFiles) {
+                if (f['is_archive'] != true) continue;
+                if ((f['archive_cycle']?.toString() ?? '') != cycleCode) continue;
+                if ((f['subject']?.toString() ?? '') != subjectId) continue;
                 final fYear = int.tryParse(f['year']?.toString() ?? '0') ?? 0;
-                if (fYear != year) return false;
+                if (fYear != year) continue;
                 if (cycleCode == 'secondaire') {
                   final fStream = (f['stream']?.toString() ?? 'ALL').toUpperCase();
                   if (fStream != 'ALL' && fStream != streamCode.toUpperCase()) {
-                    return false;
+                    continue;
                   }
                 }
-                return true;
-              }).toList();
+                final uniqueKey = '${cycleCode}_${subjectId}_${streamCode}_$year';
+                if (seenKeys.add(uniqueKey)) {
+                  result.add(f);
+                }
+              }
+              return result;
             }
 
-            // 1. دمج (الدروس + الملخصات بدون فصول) ودمج (الفروض + الاختبارات مع الفصول)
+            bool isFileValidForHighSchoolStream(Map__LT__String, dynamic__GT__ f, String levelCode, String streamCode) {
+              final lvl = levelCode.toUpperCase();
+              if (!['1AS', '2AS', '3AS'].contains(lvl) || streamCode.isEmpty || streamCode == 'ALL') {
+                return true;
+              }
+              final subj = f['subject']?.toString() ?? '';
+              final allowedSubjects = getCoefficientsForLevel(lvl, streamCode, includeSport: false, includeAmazigh: true).keys.toSet();
+              if (!allowedSubjects.contains(subj)) return false;
+
+              final fStream = (f['stream']?.toString() ?? 'ALL').toUpperCase();
+              final target = streamCode.toUpperCase();
+              if (fStream == target) return true;
+
+              if (['SE', 'MATH', 'TM'].contains(target) && ['SE', 'MATH', 'TM'].contains(fStream) && subj != 'science' && subj != 'engineering') {
+                return true;
+              }
+              if (['LP', 'LE'].contains(target) && ['LP', 'LE'].contains(fStream) && subj != 'third_lang') {
+                return true;
+              }
+              return false;
+            }
+
             List__LT__Map__LT__String, dynamic__GT____GT__ getUploadedStudyItems({
               required String levelCode,
               required String subjectId,
               required int trimester,
               required String category,
+              String streamCode = 'ALL',
             }) {
               return uploadedFiles.where((f) {
                 if (f['is_archive'] == true && category != 'books') return false;
                 final sameLevel = (f['level']?.toString().toUpperCase() ?? '') == levelCode.toUpperCase();
                 final sameSubj = (f['subject']?.toString() ?? '') == subjectId;
                 if (!sameLevel || !sameSubj) return false;
+                if (!isFileValidForHighSchoolStream(f, levelCode, streamCode)) return false;
 
                 final fCat = f['category']?.toString() ?? '';
                 if (category == 'lessons') {
@@ -1226,7 +1268,6 @@ jobs:
               }).toList();
             }
 
-            // 2. تحويل أسماء الملفات الإنجليزية تلقائياً إلى أسماء عربية واضحة
             String formatArabicFileTitle(Map__LT__String, dynamic__GT__ fileItem, int index) {
               final rawTitle = fileItem['title']?.toString() ?? '';
               if (RegExp(r'[\u0600-\u06FF]').hasMatch(rawTitle)) {
@@ -1235,14 +1276,15 @@ jobs:
 
               final subjId = fileItem['subject']?.toString() ?? 'math';
               final subjAr = subjectCatalog[subjId]?['ar'] ?? 'المادة';
-              final numMatch = RegExp(r'(\d+)$').firstMatch(rawTitle.trim());
+              final cleaned = rawTitle.replaceAll('merged', '').trim();
+              final numMatch = RegExp(r'(\d+)$').firstMatch(cleaned);
               final modelNum = numMatch != null ? numMatch.group(1)! : '${index + 1}';
 
               if (fileItem['is_archive'] == true) {
                 final yr = fileItem['year'] ?? 2025;
                 final cyc = fileItem['archive_cycle']?.toString() ?? 'secondaire';
-                if (cyc == 'secondaire') return 'موضوع بكالوريا $yr في $subjAr';
-                if (cyc == 'moyen') return 'موضوع شهادة التعليم المتوسط $yr في $subjAr';
+                if (cyc == 'secondaire') return 'موضوع بكالوريا $yr مع التصحيح النموذجي في $subjAr';
+                if (cyc == 'moyen') return 'موضوع شهادة التعليم المتوسط $yr مع التصحيح في $subjAr';
                 return 'موضوع شهادة التعليم الابتدائي $yr في $subjAr';
               }
 
@@ -1261,7 +1303,6 @@ jobs:
               return 'اختبار $trimAr في $subjAr - النموذج $modelNum';
             }
 
-            // 3. عدادات الملفات (####) بجانب كل طور، مستوى، مادة، قسم، وفصل
             int countFilesForCycle(String cycleCode) {
               final cycleLvls = allLevels
                   .where((l) =__GT__ l['cycle'] == cycleCode)
@@ -1283,12 +1324,12 @@ jobs:
               }).length;
             }
 
-            int countFilesForSubject(String levelCode, String subjectId) {
+            int countFilesForSubject(String levelCode, String subjectId, [String streamCode = 'ALL']) {
               final target = levelCode.toUpperCase();
               return uploadedFiles.where((f) {
                 if (f['is_archive'] == true && f['category'] != 'books') return false;
-                return (f['level']?.toString() ?? '').toUpperCase() == target &&
-                    f['subject'] == subjectId;
+                if ((f['level']?.toString() ?? '').toUpperCase() != target || f['subject'] != subjectId) return false;
+                return isFileValidForHighSchoolStream(f, levelCode, streamCode);
               }).length;
             }
 
@@ -1297,12 +1338,14 @@ jobs:
               required String subjectId,
               required String folderId,
               int? trimester,
+              String streamCode = 'ALL',
             }) {
               final target = levelCode.toUpperCase();
               return uploadedFiles.where((f) {
                 if (f['is_archive'] == true && folderId != 'books') return false;
                 if ((f['level']?.toString() ?? '').toUpperCase() != target) return false;
                 if (f['subject'] != subjectId) return false;
+                if (!isFileValidForHighSchoolStream(f, levelCode, streamCode)) return false;
 
                 final fCat = f['category']?.toString() ?? '';
                 if (folderId == 'lessons') {
@@ -1328,16 +1371,18 @@ jobs:
               String? subjectId,
               String? streamCode,
             }) {
-              return uploadedFiles.where((f) {
-                if (f['is_archive'] != true) return false;
-                if (f['archive_cycle'] != cycleCode) return false;
-                if (subjectId != null && f['subject'] != subjectId) return false;
+              final seen = __LT__String__GT__{};
+              for (final f in uploadedFiles) {
+                if (f['is_archive'] != true) continue;
+                if (f['archive_cycle'] != cycleCode) continue;
+                if (subjectId != null && f['subject'] != subjectId) continue;
                 if (cycleCode == 'secondaire' && streamCode != null && streamCode != 'ALL') {
                   final fs = (f['stream']?.toString() ?? 'ALL').toUpperCase();
-                  if (fs != 'ALL' && fs != streamCode.toUpperCase()) return false;
+                  if (fs != 'ALL' && fs != streamCode.toUpperCase()) continue;
                 }
-                return true;
-              }).length;
+                seen.add('${f['archive_cycle']}_${f['subject']}_${f['stream']}_${f['year']}');
+              }
+              return seen.length;
             }
 
             // 4. ميزة المكافأة 2: حفظ نسخة PDF في مجلد Download بالهاتف للطباعة
@@ -3917,53 +3962,903 @@ jobs:
                                   label: const Text(
                                     '🖨️ حفظ ملف الـ PDF في الهاتف للطباعة (شاهد إعلاناً قصيراً)',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+     class LevelSubjectsPage extends StatefulWidget {
+            final String levelCode;
+
+            const LevelSubjectsPage({super.key, required this.levelCode});
+
+            @override
+            State__LT__LevelSubjectsPage__GT__ createState() =__GT__ _LevelSubjectsPageState();
+          }
+
+          class _LevelSubjectsPageState extends State__LT__LevelSubjectsPage__GT__ {
+            late String _selectedStream;
+
+            @override
+            void initState() {
+              super.initState();
+              _selectedStream = widget.levelCode == '1AS' ? 'TC_ST' : 'SE';
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              final ctrl = AppScope.of(context);
+              final is1AS = widget.levelCode == '1AS';
+              final is2AS3AS = widget.levelCode == '2AS' || widget.levelCode == '3AS';
+              final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
+
+              final coeffsMap = ctrl.getCoefficientsForLevel(
+                widget.levelCode,
+                _selectedStream,
+                includeSport: false,
+                includeAmazigh: true,
+              );
+              final subjectIds = coeffsMap.keys.toList();
+
+              return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
+                appBar: AppBar(
+                  title: Text('${ctrl.levelLabel(widget.levelCode)} (${ctrl.countFilesForLevel(widget.levelCode)})'),
+                ),
+                body: Column(
+                  children: [
+                    if (is1AS || is2AS3AS)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                        color: const Color(0xFF147A42).withOpacity(0.08),
+                        child: DropdownButtonFormField__LT__String__GT__(
+                          value: _selectedStream,
+                          decoration: InputDecoration(
+                            labelText: ctrl.tr('اختر الشعبة / الجذع المشترك', 'Choisissez la filière', 'Select Stream'),
+                            filled: true,
+                            fillColor: ctrl.isDarkMode ? const Color(0xFF19241D) : Colors.white,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          ),
+                          items: streams
+                              .map((s) =__GT__ DropdownMenuItem__LT__String__GT__(
+                                    value: s['code']!,
+                                    child: Text(ctrl.tr(s['ar']!, s['fr']!, s['en'])),
+                                  ))
+                              .toList(),
+                          onChanged: (val) {
+                            if (val != null) setState(() =__GT__ _selectedStream = val);
+                          },
+                        ),
+                      ),
+                    Expanded(
+                      child: GridView.builder(
+                        padding: const EdgeInsets.all(16),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 14,
+                          crossAxisSpacing: 14,
+                          childAspectRatio: 1.06,
+                        ),
+                        itemCount: subjectIds.length,
+                        itemBuilder: (context, idx) {
+                          final subjId = subjectIds[idx];
+                          final coeff = coeffsMap[subjId] ?? 1;
+                          final subjCount = ctrl.countFilesForSubject(widget.levelCode, subjId, _selectedStream);
+
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =__GT__ SubjectTrimestersPage(
+                                    levelCode: widget.levelCode,
+                                    streamCode: _selectedStream,
+                                    subjectId: subjId,
+                                    coefficient: coeff,
                                   ),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: ctrl.isDarkMode ? const Color(0xFF19241D) : const Color(0xFFF9F9F4),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: const Color(0xFF147A42).withOpacity(0.22)),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(ctrl.subjectEmoji(subjId), style: const TextStyle(fontSize: 36)),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    ctrl.subjectTitle(subjId),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF147A42).withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '📁 $subjCount ملف',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        color: Color(0xFF147A42),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+          }
+
+          class SubjectTrimestersPage extends StatefulWidget {
+            final String levelCode;
+            final String streamCode;
+            final String subjectId;
+            final int coefficient;
+
+            const SubjectTrimestersPage({
+              super.key,
+              required this.levelCode,
+              required this.streamCode,
+              required this.subjectId,
+              required this.coefficient,
+            });
+
+            @override
+            State__LT__SubjectTrimestersPage__GT__ createState() =__GT__ _SubjectTrimestersPageState();
+          }
+
+          class _SubjectTrimestersPageState extends State__LT__SubjectTrimestersPage__GT__ {
+            int _selectedTrimester = 1;
+            String _selectedCategory = 'lessons';
+            bool _isBulkDownloading = false;
+            int _bulkDoneCount = 0;
+
+            Future__LT__void__GT__ _downloadAllFolderItems(
+              AppController ctrl,
+              List__LT__Map__LT__String, dynamic__GT____GT__ items,
+            ) async {
+              setState(() {
+                _isBulkDownloading = true;
+                _bulkDoneCount = 0;
+              });
+              for (final item in items) {
+                try {
+                  await ctrl.downloadAndCacheFile(item);
+                } catch (_) {}
+                if (mounted) {
+                  setState(() =__GT__ _bulkDoneCount++);
+                }
+              }
+              if (mounted) {
+                setState(() =__GT__ _isBulkDownloading = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('✅ تم تحميل وحفظ جميع الملفات (${items.length}) للعمل بدون إنترنت!'),
+                  ),
+                );
+              }
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              final ctrl = AppScope.of(context);
+              final items = ctrl.getUploadedStudyItems(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                trimester: _selectedTrimester,
+                category: _selectedCategory,
+                streamCode: widget.streamCode,
+              );
+
+              final lessonsCount = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'lessons',
+                streamCode: widget.streamCode,
+              );
+              final examsCount = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'exams',
+                streamCode: widget.streamCode,
+              );
+              final booksCount = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'books',
+                streamCode: widget.streamCode,
+              );
+
+              final t1Count = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'exams',
+                trimester: 1,
+                streamCode: widget.streamCode,
+              );
+              final t2Count = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'exams',
+                trimester: 2,
+                streamCode: widget.streamCode,
+              );
+              final t3Count = ctrl.countFilesForMergedFolder(
+                levelCode: widget.levelCode,
+                subjectId: widget.subjectId,
+                folderId: 'exams',
+                trimester: 3,
+                streamCode: widget.streamCode,
+              );
+
+              return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
+                appBar: AppBar(
+                  title: Text('${ctrl.subjectTitle(widget.subjectId)} (${widget.levelCode})'),
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.sync),
+                      onPressed: () =__GT__ ctrl.refreshCloudCatalog(),
+                    ),
+                  ],
+                ),
+                body: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _buildFolderTab(
+                              id: 'lessons',
+                              emoji: '📘',
+                              label: 'الدروس والملخصات ($lessonsCount)',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _buildFolderTab(
+                              id: 'exams',
+                              emoji: '🏆',
+                              label: 'الفروض والاختبارات ($examsCount)',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _buildFolderTab(
+                              id: 'books',
+                              emoji: '📚',
+                              label: 'الكتب ($booksCount)',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    if (_selectedCategory == 'exams')
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        color: const Color(0xFF147A42).withOpacity(0.08),
+                        child: Row(
+                          children: [
+                            _buildTrimesterButton(1, 'الفصل الأول ($t1Count)'),
+                            const SizedBox(width: 6),
+                            _buildTrimesterButton(2, 'الفصل الثاني ($t2Count)'),
+                            const SizedBox(width: 6),
+                            _buildTrimesterButton(3, 'الفصل الثالث ($t3Count)'),
+                          ],
+                        ),
+                      ),
+
+                    if (items.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                        child: _isBulkDownloading
+                            ? Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE8F5E9),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      'جاري تحميل الملفات بدون إنترنت ($_bulkDoneCount / ${items.length})...',
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF147A42),
+                                  side: const BorderSide(color: Color(0xFF147A42), width: 1.5),
+                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                ),
+                                onPressed: () {
+                                  AdHelper.showRewardedAd(
+                                    context,
+                                    rewardTitle: 'تحميل جميع ملفات القسم دفعة واحدة',
+                                    onRewardEarned: () =__GT__ _downloadAllFolderItems(ctrl, items),
+                                  );
+                                },
+                                icon: const Icon(Icons.downloading_rounded),
+                                label: Text(
+                                  '⚡ تحميل جميع ملفات هذا القسم دفعة واحدة بدون إنترنت (${items.length} ملف)',
+                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5),
+                                ),
+                              ),
+                      ),
+
+                    const Divider(),
+
+                    Expanded(
+                      child: items.isEmpty
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(26),
+                                child: Text(
+                                  'لا توجد ملفات مرفوعة في هذا القسم حالياً.\nاضغط على زر التحديث (🔄) في الأعلى بعد رفع الملفات.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: items.length,
+                              itemBuilder: (context, idx) {
+                                final fileItem = Map__LT__String, dynamic__GT__.from(items[idx]);
+                                final arabicName = ctrl.formatArabicFileTitle(fileItem, idx);
+                                fileItem['title'] = arabicName;
+                                final isPdf = fileItem['type'] == 'pdf';
+                                final isCached = ctrl.isFileCachedLocally(fileItem);
+
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.all(14),
+                                    leading: CircleAvatar(
+                                      radius: 24,
+                                      backgroundColor: const Color(0xFF147A42).withOpacity(0.14),
+                                      child: Icon(
+                                        isPdf ? Icons.picture_as_pdf : Icons.image,
+                                        color: const Color(0xFF147A42),
+                                        size: 26,
+                                      ),
+                                    ),
+                                    title: Text(
+                                      arabicName,
+                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
+                                    ),
+                                    subtitle: Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        isCached
+                                            ? '✅ محفوظ في الهاتف (يعمل بدون إنترنت)'
+                                            : '☁️ سحابي • اضغط للتحميل والمطالعة',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: isCached ? const Color(0xFF147A42) : Colors.orange.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                    trailing: isCached
+                                        ? IconButton(
+                                            icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                                            onPressed: () =__GT__ ctrl.deleteCachedFile(fileItem),
+                                          )
+                                        : const CircleAvatar(
+                                            radius: 16,
+                                            backgroundColor: Color(0xFF147A42),
+                                            child: Icon(Icons.download, color: Colors.white, size: 16),
+                                          ),
+                                    onTap: () {
+                                      AdHelper.showInterstitialIfReady();
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =__GT__ FileViewerPage(fileItem: fileItem),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            Widget _buildTrimesterButton(int trim, String label) {
+              final selected = _selectedTrimester == trim;
+              return Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () =__GT__ setState(() =__GT__ _selectedTrimester = trim),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: selected ? const Color(0xFF147A42) : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFF147A42)),
+                    ),
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12.5,
+                        color: selected ? Colors.white : const Color(0xFF147A42),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            Widget _buildFolderTab({
+              required String id,
+              required String emoji,
+              required String label,
+            }) {
+              final selected = _selectedCategory == id;
+              return InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () =__GT__ setState(() =__GT__ _selectedCategory = id),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? const Color(0xFFF5B800).withOpacity(0.25)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: selected ? const Color(0xFF147A42) : Colors.grey.shade300,
+                      width: selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(emoji, style: const TextStyle(fontSize: 22)),
+                      const SizedBox(height: 4),
+                      Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+          }
+
+          class FileViewerPage extends StatefulWidget {
+            final Map__LT__String, dynamic__GT__ fileItem;
+
+            const FileViewerPage({super.key, required this.fileItem});
+
+            @override
+            State__LT__FileViewerPage__GT__ createState() =__GT__ _FileViewerPageState();
+          }
+
+          class _FileViewerPageState extends State__LT__FileViewerPage__GT__ {
+            static const _pdfChannel = MethodChannel('dz.studydz.app/pdf');
+            final ScrollController _scrollController = ScrollController();
+
+            File? _localFile;
+            int _pageCount = 0;
+            int _currentVisiblePage = 1;
+            double _itemExtent = 520.0;
+            bool _loading = true;
+            String? _error;
+            bool _initialized = false;
+
+            final Map__LT__int, Uint8List__GT__ _pageCache = {};
+            final Set__LT__int__GT__ _loadingPages = {};
+            Future__LT__void__GT__ _renderChain = Future.value();
+
+            @override
+            void initState() {
+              super.initState();
+              _scrollController.addListener(_onScroll);
+            }
+
+            @override
+            void dispose() {
+              _scrollController.removeListener(_onScroll);
+              _scrollController.dispose();
+              super.dispose();
+            }
+
+            void _onScroll() {
+              if (!_scrollController.hasClients || _itemExtent __LT__= 0 || _pageCount == 0) return;
+              final page = ((_scrollController.offset + (_itemExtent * 0.35)) / _itemExtent).floor() + 1;
+              final clamped = page.clamp(1, _pageCount);
+              if (clamped != _currentVisiblePage) {
+                setState(() =__GT__ _currentVisiblePage = clamped);
+              }
+            }
+
+            @override
+            void didChangeDependencies() {
+              super.didChangeDependencies();
+              if (!_initialized) {
+                _initialized = true;
+                _prepareAndOpenFile();
+              }
+            }
+
+            Future__LT__void__GT__ _prepareAndOpenFile() async {
+              final ctrl = AppScope.of(context);
+              setState(() {
+                _loading = true;
+                _error = null;
+              });
+
+              try {
+                final cachedFile = await ctrl.downloadAndCacheFile(widget.fileItem);
+                _localFile = cachedFile;
+
+                if (widget.fileItem['type'] == 'pdf') {
+                  final count = await _pdfChannel.invokeMethod__LT__int__GT__(
+                    'getPageCount',
+                    {'path': cachedFile.path},
+                  );
+                  _pageCount = count ?? 0;
+                  if (_pageCount __GT__ 0) {
+                    setState(() =__GT__ _loading = false);
+                    _requestPageRender(0);
+                    if (_pageCount __GT__ 1) _requestPageRender(1);
+                  } else {
+                    setState(() {
+                      _loading = false;
+                      _error = 'ملف PDF فارغ';
+                    });
+                  }
+                } else {
+                  setState(() =__GT__ _loading = false);
+                }
+              } catch (e) {
+                setState(() {
+                  _loading = false;
+                  _error = 'تأكد من اتصالك بالإنترنت عند فتح الملف لأول مرة فقط.\n($e)';
+                });
+              }
+            }
+
+            void _requestPageRender(int pageIdx) {
+              if (_localFile == null || _pageCache.containsKey(pageIdx) || _loadingPages.contains(pageIdx)) {
+                return;
+              }
+              _loadingPages.add(pageIdx);
+              _renderChain = _renderChain.then((_) async {
+                if (!mounted || _localFile == null) return;
+                try {
+                  final bytes = await _pdfChannel.invokeMethod__LT__Uint8List__GT__(
+                    'renderPage',
+                    {'path': _localFile!.path, 'pageIndex': pageIdx},
+                  );
+                  if (mounted && bytes != null) {
+                    setState(() {
+                      _pageCache[pageIdx] = bytes;
+                      if (_pageCache.length __GT__ 18) {
+                        final farKey = _pageCache.keys.firstWhere(
+                          (k) =__GT__ (k - (_currentVisiblePage - 1)).abs() __GT__ 10,
+                          orElse: () =__GT__ _pageCache.keys.first,
+                        );
+                        _pageCache.remove(farKey);
+                      }
+                    });
+                  }
+                } catch (_) {
+                } finally {
+                  _loadingPages.remove(pageIdx);
+                }
+              });
+            }
+
+            void _jumpToPage(int pageNumber) {
+              if (!_scrollController.hasClients || _pageCount == 0) return;
+              final target = pageNumber.clamp(1, _pageCount);
+              final targetOffset = (target - 1) * _itemExtent;
+              _requestPageRender(target - 1);
+              _scrollController.animateTo(
+                targetOffset,
+                duration: const Duration(milliseconds: 320),
+                curve: Curves.easeOutCubic,
+              );
+              setState(() =__GT__ _currentVisiblePage = target);
+            }
+
+            void _showJumpToPageDialog(BuildContext context) {
+              final pageCtrl = TextEditingController(text: '$_currentVisiblePage');
+              showDialog(
+                context: context,
+                builder: (ctx) =__GT__ AlertDialog(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                  title: const Text('🔢 الذهاب المباشر إلى صفحة'),
+                  content: TextField(
+                    controller: pageCtrl,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    decoration: InputDecoration(
+                      labelText: 'اكتب رقم الصفحة (من 1 إلى $_pageCount)',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onSubmitted: (v) {
+                      final p = int.tryParse(v.trim());
+                      Navigator.pop(ctx);
+                      if (p != null) _jumpToPage(p);
+                    },
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () =__GT__ Navigator.pop(ctx),
+                      child: const Text('إلغاء'),
+                    ),
+                    FilledButton(
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF147A42)),
+                      onPressed: () {
+                        final p = int.tryParse(pageCtrl.text.trim());
+                        Navigator.pop(ctx);
+                        if (p != null) _jumpToPage(p);
+                      },
+                      child: const Text('انتقال الآن'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            void _triggerPrintExport(BuildContext context, AppController ctrl) {
+              AdHelper.showRewardedAd(
+                context,
+                rewardTitle: 'حفظ ملف الـ PDF في الهاتف للطباعة',
+                onRewardEarned: () async {
+                  final savedPath = await ctrl.exportPdfForPrinting(widget.fileItem);
+                  if (context.mounted) {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) =__GT__ AlertDialog(
+                        title: const Text('🖨️ تم حفظ الملف للطباعة بنجاح!'),
+                        content: Text('تم حفظ نسخة PDF جاهزة للطباعة في هاتفك في المسار:\n\n$savedPath'),
+                        actions: [
+                          FilledButton(
+                            onPressed: () =__GT__ Navigator.pop(ctx),
+                            child: const Text('حسناً'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                },
+              );
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              final ctrl = AppScope.of(context);
+              final title = widget.fileItem['title']?.toString() ?? '';
+              final isPdf = widget.fileItem['type'] == 'pdf';
+
+              return Scaffold(
+                appBar: AppBar(
+                  title: Text(title, style: const TextStyle(fontSize: 15.5)),
+                  actions: [
+                    if (isPdf && _pageCount __GT__ 1)
+                      TextButton.icon(
+                        style: TextButton.styleFrom(foregroundColor: Colors.white),
+                        onPressed: () =__GT__ _showJumpToPageDialog(context),
+                        icon: const Icon(Icons.find_in_page_outlined, color: Color(0xFFF5B800), size: 20),
+                        label: Text(
+                          '$_currentVisiblePage/$_pageCount',
+                          style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white),
+                        ),
+                      ),
+                    IconButton(
+                      tooltip: 'حفظ ملف الـ PDF في الهاتف للطباعة',
+                      icon: const Icon(Icons.print_rounded),
+                      onPressed: () =__GT__ _triggerPrintExport(context, ctrl),
+                    ),
+                  ],
+                ),
+                body: _loading
+                    ? const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 14),
+                            Text('جاري التحميل والحفظ للمطالعة بدون إنترنت...'),
+                          ],
+                        ),
+                      )
+                    : _error != null
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.wifi_off, size: 52, color: Colors.red),
+                                  const SizedBox(height: 12),
+                                  Text(_error!, textAlign: TextAlign.center),
+                                  const SizedBox(height: 14),
+                                  FilledButton.icon(
+                                    onPressed: _prepareAndOpenFile,
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('إعادة المحاولة'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: const Color(0xFF147A42),
+                                          padding: const EdgeInsets.symmetric(vertical: 10),
+                                        ),
+                                        onPressed: () =__GT__ _triggerPrintExport(context, ctrl),
+                                        icon: const Icon(Icons.print_rounded, size: 18),
+                                        label: const Text(
+                                          '🖨️ حفظ للطباعة',
+                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                                        ),
+                                      ),
+                                    ),
+                                    if (isPdf && _pageCount __GT__ 1) ...[
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: const Color(0xFF147A42),
+                                            side: const BorderSide(color: Color(0xFF147A42), width: 1.5),
+                                            padding: const EdgeInsets.symmetric(vertical: 10),
+                                          ),
+                                          onPressed: () =__GT__ _showJumpToPageDialog(context),
+                                          icon: const Icon(Icons.pin_outlined, size: 18),
+                                          label: Text(
+                                            'الذهاب لصفحة ($_currentVisiblePage/$_pageCount)',
+                                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                               Expanded(
-                                child: InteractiveViewer(
-                                  minScale: 0.8,
-                                  maxScale: 5.0,
-                                  child: Center(
-                                    child: !isPdf
-                                        ? Image.file(_localFile!, fit: BoxFit.contain)
-                                        : (_pageBytes != null
-                                            ? Image.memory(_pageBytes!, fit: BoxFit.contain)
-                                            : const SizedBox.shrink()),
-                                  ),
-                                ),
-                              ),
-                              if (isPdf && _pageCount __GT__ 1)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                  color: const Color(0xFF147A42),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      IconButton(
-                                        color: Colors.white,
-                                        onPressed: _currentPage __GT__ 0
-                                            ? () =__GT__ _loadPage(_currentPage - 1)
-                                            : null,
-                                        icon: const Icon(Icons.navigate_before),
-                                      ),
-                                      Text(
-                                        'صفحة ${_currentPage + 1} من $_pageCount',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
+                                child: !isPdf
+                                    ? InteractiveViewer(
+                                        minScale: 0.8,
+                                        maxScale: 5.0,
+                                        child: Center(
+                                          child: Image.file(_localFile!, fit: BoxFit.contain),
                                         ),
+                                      )
+                                    : LayoutBuilder(
+                                        builder: (context, constraints) {
+                                          final pageW = constraints.maxWidth - 20;
+                                          final pageH = pageW * 1.4142;
+                                          _itemExtent = pageH + 42;
+
+                                          return InteractiveViewer(
+                                            minScale: 1.0,
+                                            maxScale: 3.5,
+                                            child: Scrollbar(
+                                              controller: _scrollController,
+                                              thumbVisibility: true,
+                                              thickness: 6,
+                                              radius: const Radius.circular(8),
+                                              child: ListView.builder(
+                                                controller: _scrollController,
+                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                itemCount: _pageCount,
+                                                itemExtent: _itemExtent,
+                                                itemBuilder: (context, index) {
+                                                  _requestPageRender(index);
+                                                  final imgBytes = _pageCache[index];
+
+                                                  return Container(
+                                                    margin: const EdgeInsets.only(bottom: 12),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.white,
+                                                      borderRadius: BorderRadius.circular(12),
+                                                      boxShadow: [
+                                                        BoxShadow(
+                                                          color: Colors.black.withOpacity(0.08),
+                                                          blurRadius: 6,
+                                                          offset: const Offset(0, 2),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    child: Column(
+                                                      children: [
+                                                        Container(
+                                                          width: double.infinity,
+                                                          height: 28,
+                                                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                                                          decoration: const BoxDecoration(
+                                                            color: Color(0xFF147A42),
+                                                            borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                                                          ),
+                                                          alignment: Alignment.centerRight,
+                                                          child: Text(
+                                                            'صفحة ${index + 1} من $_pageCount',
+                                                            style: const TextStyle(
+                                                              color: Colors.white,
+                                                              fontWeight: FontWeight.bold,
+                                                              fontSize: 12,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        Expanded(
+                                                          child: imgBytes != null
+                                                              ? Image.memory(
+                                                                  imgBytes,
+                                                                  fit: BoxFit.contain,
+                                                                  width: double.infinity,
+                                                                )
+                                                              : const Center(
+                                                                  child: SizedBox(
+                                                                    width: 28,
+                                                                    height: 28,
+                                                                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                                                                  ),
+                                                                ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          );
+                                        },
                                       ),
-                                      IconButton(
-                                        color: Colors.white,
-                                        onPressed: _currentPage + 1 __LT__ _pageCount
-                                            ? () =__GT__ _loadPage(_currentPage + 1)
-                                            : null,
-                                        icon: const Icon(Icons.navigate_next),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                              ),
                             ],
                           ),
               );
@@ -4045,6 +4940,707 @@ jobs:
                 return ctrl.tr('التقدير: مقبول ✅ (Passable)', 'Mention : Passable ✅', 'Mention: Pass ✅');
               }
               return ctrl.tr('دون المعدل — واصل الاجتهاد 💪', 'Sous la moyenne 💪', 'Below Average 💪');
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              final ctrl = AppScope.of(context);
+              final activeLevel = _calcLevel ?? ctrl.currentProfile.levelCode;
+              final isPrimary = activeLevel.endsWith('AP');
+              final is1AS = activeLevel == '1AS';
+              final is2AS3AS = activeLevel == '2AS' || activeLevel == '3AS';
+              final canHaveOfficialExamMode = activeLevel == '4AM' || activeLevel == '3AS';
+              final effectiveExamMode = canHaveOfficialExamMode && _isOfficialExamMode;
+
+              final streams = is1AS ? AppController.streams1AS : AppController.streams2AS3AS;
+              String activeStream = _calcStream ?? ctrl.currentProfile.streamCode;
+              if ((is1AS || is2AS3AS) && !streams.any((s) =__GT__ s['code'] == activeStream)) {
+                activeStream = streams.first['code']!;
+              }
+
+              final coeffsMap = ctrl.getCoefficientsForLevel(
+                activeLevel,
+                activeStream,
+                includeSport: _includeSport,
+                includeAmazigh: _includeAmazigh,
+                includeArt: _includeArt,
+              );
+
+              if (effectiveExamMode && activeLevel == '4AM') {
+                coeffsMap.remove('cs');
+              }
+
+              final subjectIds = coeffsMap.keys.toList();
+
+              int totalCoeffs = 0;
+              double totalPoints = 0.0;
+
+              for (final subjId in subjectIds) {
+                final key = '${activeLevel}_${activeStream}_${effectiveExamMode}_$subjId';
+                final sAvg = _subjectAverage(
+                  key: key,
+                  isPrimary: isPrimary,
+                  isExamCertificateMode: effectiveExamMode,
+                );
+                final c = coeffsMap[subjId] ?? 1;
+
+                if (effectiveExamMode && activeLevel == '4AM' && subjId == 'art') {
+                  if (sAvg __GT__ 10.0) {
+                    totalPoints += (sAvg - 10.0);
+                  }
+                } else {
+                  totalCoeffs += c;
+                  totalPoints += sAvg * c;
+                }
+              }
+
+              final finalAverage = totalCoeffs == 0 ? 0.0 : totalPoints / totalCoeffs;
+              final maxScale = isPrimary ? 10 : 20;
+
+              return Scaffold(
+                bottomNavigationBar: const StudyBannerAdWidget(),
+                appBar: AppBar(
+                  title: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.calculate_rounded, color: Color(0xFFF5B800), size: 26),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          ctrl.tr('حاسبة المعدل الدراسي', 'Calculateur de Moyenne', 'Average Calculator'),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                body: ListView(
+                  padding: const EdgeInsets.all(14),
+                  children: [
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: AppController.allLevels.map((lvl) {
+                                  final code = lvl['code']!;
+                                  final selected = code == activeLevel;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(left: 6, right: 2),
+                                    child: ChoiceChip(
+                                      label: Text(
+                                        code,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          color: selected ? Colors.white : const Color(0xFF147A42),
+                                        ),
+                                      ),
+                                      selected: selected,
+                                      selectedColor: const Color(0xFF147A42),
+                                      onSelected: (_) {
+                                        setState(() {
+                                          _calcLevel = code;
+                                          _isOfficialExamMode = false;
+                                          if (code == '1AS') {
+                                            _calcStream = 'TC_ST';
+                                          } else if (code == '2AS' || code == '3AS') {
+                                            _calcStream = 'SE';
+                                          } else {
+                                            _calcStream = '';
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            DropdownButtonFormField__LT__String__GT__(
+                              value: activeLevel,
+                              decoration: InputDecoration(
+                                labelText: ctrl.tr('السنة الدراسية', 'Niveau scolaire', 'Grade Level'),
+                                prefixIcon: const Icon(Icons.school, color: Color(0xFF147A42)),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              ),
+                              items: AppController.allLevels
+                                  .map((lvl) =__GT__ DropdownMenuItem__LT__String__GT__(
+                                        value: lvl['code']!,
+                                        child: Text(ctrl.tr(lvl['ar']!, lvl['fr']!, lvl['en'])),
+                                      ))
+                                  .toList(),
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setState(() {
+                                    _calcLevel = val;
+                                    _isOfficialExamMode = false;
+                                    if (val == '1AS') {
+                                      _calcStream = 'TC_ST';
+                                    } else if (val == '2AS' || val == '3AS') {
+                                      _calcStream = 'SE';
+                                    } else {
+                                      _calcStream = '';
+                                    }
+                                  });
+                                }
+                              },
+                            ),
+                            if (is1AS || is2AS3AS) ...[
+                              const SizedBox(height: 10),
+                              DropdownButtonFormField__LT__String__GT__(
+                                value: activeStream,
+                                decoration: InputDecoration(
+                                  labelText: ctrl.tr('الشعبة / الجذع المشترك', 'Filière', 'Stream'),
+                                  prefixIcon: const Icon(Icons.account_tree_outlined, color: Color(0xFF147A42)),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                ),
+                                items: streams
+                                    .map((s) =__GT__ DropdownMenuItem__LT__String__GT__(
+                                          value: s['code']!,
+                                          child: Text(ctrl.tr(s['ar']!, s['fr']!, s['en'])),
+                                        ))
+                                    .toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() =__GT__ _calcStream = val);
+                                  }
+                                },
+                              ),
+                            ],
+                            if (canHaveOfficialExamMode) ...[
+                              const SizedBox(height: 12),
+                              SegmentedButton__LT__bool__GT__(
+                                segments: [
+                                  ButtonSegment(
+                                    value: false,
+                                    label: Text(ctrl.tr('حساب المعدل الفصلي', 'Moyenne Trimestrielle', 'Term Average')),
+                                  ),
+                                  ButtonSegment(
+                                    value: true,
+                                    label: Text(
+                                      activeLevel == '4AM'
+                                          ? ctrl.tr('حساب معدل شهادة البيام BEM', 'Moyenne BEM', 'BEM Exam')
+                                          : ctrl.tr('حساب معدل البكالوريا BAC', 'Moyenne BAC', 'BAC Exam'),
+                                    ),
+                                  ),
+                                ],
+                                selected: {_isOfficialExamMode},
+                                onSelectionChanged: (s) {
+                                  setState(() =__GT__ _isOfficialExamMode = s.first);
+                                },
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                FilterChip(
+                                  label: Text(ctrl.tr('تربية بدنية', 'Sport', 'Sport')),
+                                  selected: _includeSport,
+                                  onSelected: (v) =__GT__ setState(() =__GT__ _includeSport = v),
+                                ),
+                                if (activeLevel != '1AP' && activeLevel != '2AP')
+                                  FilterChip(
+                                    label: Text(ctrl.tr('لغة أمازيغية', 'Amazigh', 'Amazigh')),
+                                    selected: _includeAmazigh,
+                                    onSelected: (v) =__GT__ setState(() =__GT__ _includeAmazigh = v),
+                                  ),
+                                if (!is2AS3AS)
+                                  FilterChip(
+                                    label: Text(ctrl.tr('تربية تشكيلية/موسيقية', 'Art/Musique', 'Art/Music')),
+                                    selected: _includeArt,
+                                    onSelected: (v) =__GT__ setState(() =__GT__ _includeArt = v),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F5E9),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFF147A42).withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        isPrimary
+                            ? '📌 طريقة الحساب (الطور الابتدائي): العلامات من 10، والمعدل الفصلي = مجموع علامات المواد ÷ عدد المواد.'
+                            : effectiveExamMode
+                                ? '📌 طريقة حساب معدل الشهادة الرسمية: (علامة كل مادة × معاملها) ÷ مجموع المعاملات ($totalCoeffs).'
+                                : '📌 طريقة حساب معدل المادة (موقع الدراسة الجزائري):\nمعدل المادة = ((التقويم + الفرض) ÷ 2 + الاختبار × 2) ÷ 3  |  المعدل = مجموع النقاط ÷ مجموع المعاملات ($totalCoeffs).',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0E4B29),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    for (final subjId in subjectIds)
+                      _buildEddirasaSubjectCard(
+                        ctrl: ctrl,
+                        activeLevel: activeLevel,
+                        activeStream: activeStream,
+                        subjId: subjId,
+                        coeff: coeffsMap[subjId] ?? 1,
+                        isPrimary: isPrimary,
+                        isExamCertificateMode: effectiveExamMode,
+                      ),
+                    const SizedBox(height: 14),
+# 12. FILE 6 OF 7: lib/screens/tools_screen.dart
+          write_file("lib/screens/tools_screen.dart", r'''import 'package:flutter/material.dart';
+          import '../main.dart';
+
+          class ToolsScreen extends StatefulWidget {
+            const ToolsScreen({super.key});
+
+            @override
+            State__LT__ToolsScreen__GT__ createState() =__GT__ _ToolsScreenState();
+          }
+
+          class _ToolsScreenState extends State__LT__ToolsScreen__GT__ {
+            String? _calcLevel;
+            String? _calcStream;
+            bool _isOfficialExamMode = false;
+            bool _includeSport = true;
+            bool _includeAmazigh = false;
+            bool _includeArt = false;
+
+            final Map__LT__String, double__GT__ _taqwimMarks = {};
+            final Map__LT__String, double__GT__ _devoirMarks = {};
+            final Map__LT__String, double__GT__ _examMarks = {};
+
+            int _resetVersion = 0;
+
+            double _getTaqwim(String key, double defaultVal) =__GT__ _taqwimMarks[key] ?? defaultVal;
+            double _getDevoir(String key, double defaultVal) =__GT__ _devoirMarks[key] ?? defaultVal;
+            double _getExam(String key, double defaultVal) =__GT__ _examMarks[key] ?? defaultVal;
+
+            double _subjectAverage({
+              required String key,
+              required bool isPrimary,
+              required bool isExamCertificateMode,
+            }) {
+              if (isPrimary) {
+                return _getExam(key, 8.0).clamp(0.0, 10.0);
+              }
+              if (isExamCertificateMode) {
+                return _getExam(key, 12.0).clamp(0.0, 20.0);
+              }
+              final t = _getTaqwim(key, 14.0).clamp(0.0, 20.0);
+              final d = _getDevoir(key, 13.0).clamp(0.0, 20.0);
+              final ex = _getExam(key, 13.0).clamp(0.0, 20.0);
+              return (((t + d) / 2.0) + (ex * 2.0)) / 3.0;
+            }
+
+            String _mentionLabel(double avg, bool isPrimary, AppController ctrl) {
+              final normalized20 = isPrimary ? avg * 2.0 : avg;
+              if (normalized20 __GT__= 16) {
+                return ctrl.tr('التقدير: جيد جداً 🌟 (Très Bien)', 'Mention : Très Bien 🌟', 'Mention: Very Good 🌟');
+              }
+              if (normalized20 __GT__= 14) {
+                return ctrl.tr('التقدير: جيد 👏 (Bien)', 'Mention : Bien 👏', 'Mention: Good 👏');
+              }
+              if (normalized20 __GT__= 12) {
+                return ctrl.tr('التقدير: قريب من الجيد (Assez Bien)', 'Mention : Assez Bien', 'Mention: Fairly Good');
+              }
+              if (normalized20 __GT__= 10) {
+                return ctrl.tr('التقدير: مقبول ✅ (Passable)', 'Mention : Passable ✅', 'Mention: Pass ✅');
+              }
+              return ctrl.tr('دون المعدل — واصل الاجتهاد 💪', 'Sous la moyenne 💪', 'Below Average 💪');
+            }
+
+            void _openThreeTrimesterTargetSetup({
+              required BuildContext context,
+              required AppController ctrl,
+              required String activeLevel,
+              required String activeStream,
+              required List__LT__String__GT__ subjectIds,
+              required Map__LT__String, int__GT__ coeffsMap,
+              required double currentAverage,
+              required int totalCoeffs,
+              required bool isPrimary,
+              required int maxScale,
+              required bool effectiveExamMode,
+            }) {
+              int completedTrimesters = 1;
+              final trim1Ctrl = TextEditingController(text: currentAverage.toStringAsFixed(2));
+              final trim2Ctrl = TextEditingController(text: currentAverage.toStringAsFixed(2));
+              final targetGoalCtrl = TextEditingController(text: isPrimary ? '5.00' : '10.00');
+
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                builder: (ctx) {
+                  return StatefulBuilder(
+                    builder: (ctx, setSheetState) {
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          left: 18,
+                          right: 18,
+                          top: 20,
+                          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+                        ),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text(
+                                '🎯 حاسبة النجاح السنوي (نظام 3 فصول) + كشف النقاط المتوقع',
+                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Color(0xFF147A42)),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'المعدل السنوي الرسمي = (معدل الفصل 1 + معدل الفصل 2 + معدل الفصل 3) ÷ 3',
+                                style: TextStyle(fontSize: 12.5, color: Colors.grey, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 14),
+                              SegmentedButton__LT__int__GT__(
+                                segments: const [
+                                  ButtonSegment(
+                                    value: 1,
+                                    label: Text('أنهيت الفصل 1 فقط\n(احسب للفصل 2 و 3)', textAlign: TextAlign.center),
+                                  ),
+                                  ButtonSegment(
+                                    value: 2,
+                                    label: Text('أنهيت الفصل 1 و 2\n(احسب للفصل 3 الحاسم)', textAlign: TextAlign.center),
+                                  ),
+                                ],
+                                selected: {completedTrimesters},
+                                onSelectionChanged: (s) {
+                                  setSheetState(() =__GT__ completedTrimesters = s.first);
+                                },
+                              ),
+                              const SizedBox(height: 14),
+                              TextField(
+                                controller: trim1Ctrl,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: InputDecoration(
+                                  labelText: 'معدل الفصل الأول (من $maxScale)',
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                              if (completedTrimesters == 2) ...[
+                                const SizedBox(height: 10),
+                                TextField(
+                                  controller: trim2Ctrl,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: InputDecoration(
+                                    labelText: 'معدل الفصل الثاني (من $maxScale)',
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: targetGoalCtrl,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: InputDecoration(
+                                  labelText: isPrimary
+                                      ? 'المعدل السنوي المستهدف (مثلاً 5.00 للنجاح أو 8.00 للامتياز)'
+                                      : 'المعدل السنوي المستهدف (مثلاً 10.00 للنجاح أو 14.00 لتقدير جيد)',
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF147A42),
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                ),
+                                onPressed: () {
+                                  final t1 = (double.tryParse(trim1Ctrl.text.trim()) ?? currentAverage).clamp(0.0, maxScale.toDouble());
+                                  final t2 = (double.tryParse(trim2Ctrl.text.trim()) ?? currentAverage).clamp(0.0, maxScale.toDouble());
+                                  final goal = (double.tryParse(targetGoalCtrl.text.trim()) ?? (isPrimary ? 5.0 : 10.0)).clamp(0.0, maxScale.toDouble());
+                                  Navigator.pop(ctx);
+
+                                  AdHelper.showRewardedAd(
+                                    context,
+                                    rewardTitle: 'كشف النقاط المفصل لكل مادة وخطة التحسين',
+                                    onRewardEarned: () {
+                                      _showDetailedReportPaperDialog(
+                                        context: context,
+                                        ctrl: ctrl,
+                                        activeLevel: activeLevel,
+                                        activeStream: activeStream,
+                                        subjectIds: subjectIds,
+                                        coeffsMap: coeffsMap,
+                                        completedTrimesters: completedTrimesters,
+                                        t1Avg: t1,
+                                        t2Avg: t2,
+                                        goalAvg: goal,
+                                        currentAverage: currentAverage,
+                                        totalCoeffs: totalCoeffs,
+                                        isPrimary: isPrimary,
+                                        maxScale: maxScale,
+                                        effectiveExamMode: effectiveExamMode,
+                                      );
+                                    },
+                                  );
+                                },
+                                icon: const Icon(Icons.play_circle_fill, color: Color(0xFFF5B800)),
+                                label: const Text(
+                                  '📄 استخراج ورقة كشف النقاط المفصلة + النصائح (شاهد إعلاناً)',
+                                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              );
+            }
+
+            void _showDetailedReportPaperDialog({
+              required BuildContext context,
+              required AppController ctrl,
+              required String activeLevel,
+              required String activeStream,
+              required List__LT__String__GT__ subjectIds,
+              required Map__LT__String, int__GT__ coeffsMap,
+              required int completedTrimesters,
+              required double t1Avg,
+              required double t2Avg,
+              required double goalAvg,
+              required double currentAverage,
+              required int totalCoeffs,
+              required bool isPrimary,
+              required int maxScale,
+              required bool effectiveExamMode,
+            }) {
+              final double rawRequired = completedTrimesters == 1
+                  ? (((goalAvg * 3.0) - t1Avg) / 2.0)
+                  : ((goalAvg * 3.0) - (t1Avg + t2Avg));
+              final double requiredPerRemainingTerm = rawRequired.clamp(0.0, maxScale.toDouble());
+              final double requiredTotalPoints = requiredPerRemainingTerm * totalCoeffs;
+
+              final List__LT__Map__LT__String, dynamic__GT____GT__ subjectRows = [];
+              double sumWeightedTargets = 0.0;
+
+              for (final subjId in subjectIds) {
+                final key = '${activeLevel}_${activeStream}_${effectiveExamMode}_$subjId';
+                final currSubjAvg = _subjectAverage(
+                  key: key,
+                  isPrimary: isPrimary,
+                  isExamCertificateMode: effectiveExamMode,
+                );
+                final c = coeffsMap[subjId] ?? 1;
+                final deltaNeeded = requiredPerRemainingTerm - currentAverage;
+
+                double recSubjAvg;
+                if (deltaNeeded __GT__ 0) {
+                  final weightBoost = c __GT__= 4 ? 1.15 : (c __GT__= 3 ? 1.05 : 0.95);
+                  recSubjAvg = (currSubjAvg + (deltaNeeded * weightBoost)).clamp(
+                    requiredPerRemainingTerm * 0.85,
+                    maxScale.toDouble(),
+                  );
+                } else {
+                  recSubjAvg = currSubjAvg.clamp(requiredPerRemainingTerm, maxScale.toDouble());
+                }
+
+                final recTaqwim = (recSubjAvg + 1.0).clamp(0.0, maxScale.toDouble());
+                final recDevoir = recSubjAvg.clamp(0.0, maxScale.toDouble());
+                final recExam = (((recSubjAvg * 3.0) - ((recTaqwim + recDevoir) / 2.0)) / 2.0).clamp(0.0, maxScale.toDouble());
+                final weightedPts = recSubjAvg * c;
+                sumWeightedTargets += weightedPts;
+
+                subjectRows.add({
+                  'id': subjId,
+                  'title': ctrl.subjectTitle(subjId),
+                  'coeff': c,
+                  'current': currSubjAvg,
+                  'target': recSubjAvg,
+                  'taqwim': recTaqwim,
+                  'devoir': recDevoir,
+                  'exam': recExam,
+                  'weightedPts': weightedPts,
+                  'impactPer2Pts': (c * 2.0) / (totalCoeffs == 0 ? 1 : totalCoeffs),
+                });
+              }
+
+              final prioritySubjects = List__LT__Map__LT__String, dynamic__GT____GT__.from(subjectRows)
+                ..sort((a, b) =__GT__ ((b['coeff'] as int) * (maxScale - (b['current'] as double)))
+                    .compareTo((a['coeff'] as int) * (maxScale - (a['current'] as double))));
+
+              showDialog(
+                context: context,
+                builder: (ctx) =__GT__ Dialog(
+                  insetPadding: const EdgeInsets.all(10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.90),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF147A42), Color(0xFF0E5C31)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            children: [
+                              const Text(
+                                '📋 ورقة كشف النقاط المتوقعة وخطة النجاح (3 فصول)',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15.5),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                completedTrimesters == 1
+                                    ? 'معدل الفصل 1: ${t1Avg.toStringAsFixed(2)} | الهدف السنوي: ${goalAvg.toStringAsFixed(2)}\n✅ المعدل المطلوب في كل من الفصل 2 والفصل 3: ${requiredPerRemainingTerm.toStringAsFixed(2)} / $maxScale'
+                                    : 'معدل ف1: ${t1Avg.toStringAsFixed(2)} | معدل ف2: ${t2Avg.toStringAsFixed(2)} | الهدف السنوي: ${goalAvg.toStringAsFixed(2)}\n✅ المعدل المطلوب في الفصل 3 الحاسم: ${requiredPerRemainingTerm.toStringAsFixed(2)} / $maxScale',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Color(0xFFF5B800), fontWeight: FontWeight.w900, fontSize: 12.5, height: 1.4),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'مجموع المعاملات: $totalCoeffs • مجموع النقاط المطلوب: ${requiredTotalPoints.toStringAsFixed(2)} نقطة',
+                                style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFF8E1),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: const Color(0xFFF5B800), width: 1.4),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        '💡 خطة التحسين الذكية (بماذا تبدأ المراجعة؟):',
+                                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5, color: Colors.black87),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      for (final pSubj in prioritySubjects.take(3))
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 5),
+                                          child: Text(
+                                            '🎯 أولوية قصوى — ${pSubj['title']} (معامل ${pSubj['coeff']}): معدلك فيها ${(pSubj['current'] as double).toStringAsFixed(2)}. إذا رفعتها بـ +2 نقاط فقط سيرتفع معدلك الفصلي العام بـ +${(pSubj['impactPer2Pts'] as double).toStringAsFixed(2)} نقطة مباشرة!',
+                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.35),
+                                          ),
+                                        ),
+                                      const Divider(),
+                                      const Text(
+                                        '📌 نصيحة ذهبية: اضمن نقاط التقويم المستمر والوظائف المنزلية (16 إلى 18/20) لأنها ترفع معدل المادة حتى لو كان الاختبار صعباً، وحل على الأقل 5 نماذج فروض واختبارات سابقة من التطبيق في مواد المعاملات الكبيرة.',
+                                        style: TextStyle(fontSize: 11.5, color: Color(0xFF0E4B29), fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  '📊 ورقة كشف النقاط التفصيلية المطلوبة في كل مادة:',
+                                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                                ),
+                                const SizedBox(height: 8),
+                                for (final row in subjectRows)
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: const Color(0xFF147A42).withOpacity(0.3)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                '${row['title']} (المعامل: ${row['coeff']})',
+                                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5, color: Colors.black87),
+                                              ),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF147A42),
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                'المعدل المطلوب: ${(row['target'] as double).toStringAsFixed(2)}/$maxScale',
+                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11.5),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          isPrimary
+                                              ? '• مستواك الحالي: ${(row['current'] as double).toStringAsFixed(2)}/10  ⬅️  العلامة المطلوبة في الاختبار القادم: ${(row['target'] as double).toStringAsFixed(1)} / 10'
+                                              : '• العلامات المطلوبة: التقويم ${(row['taqwim'] as double).toStringAsFixed(1)}/20  |  الفرض ${(row['devoir'] as double).toStringAsFixed(1)}/20  |  الاختبار ${(row['exam'] as double).toStringAsFixed(1)}/20',
+                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF0E4B29)),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '• مجموع النقاط بالمعامل: ${(row['weightedPts'] as double).toStringAsFixed(2)} نقطة (من أصل ${row['coeff'] * maxScale})',
+                                          style: const TextStyle(fontSize: 11.5, color: Colors.black54, fontWeight: FontWeight.bold),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE8F5E9),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '✅ المجموع العام المتوقع في كشف النقاط: ${sumWeightedTargets.toStringAsFixed(2)} نقطة ÷ $totalCoeffs معاملات = ${(sumWeightedTargets / (totalCoeffs == 0 ? 1 : totalCoeffs)).toStringAsFixed(2)} / $maxScale',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF147A42), fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        FilledButton(
+                          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF147A42)),
+                          onPressed: () =__GT__ Navigator.pop(ctx),
+                          child: const Text('إغلاق وحفظ كشف النقاط'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
             }
 
             @override
@@ -4410,64 +6006,33 @@ jobs:
                           ),
                           const SizedBox(height: 12),
 
-                          // ميزة المكافأة 4: كم أحتاج في الفصل القادم للنجاح؟
+                          // ميزة المكافأة 4: حاسبة الفصول الثلاثة + ورقة كشف النقاط التفصيلية وخطة التحسين
                           FilledButton.icon(
                             style: FilledButton.styleFrom(
                               backgroundColor: const Color(0xFFF5B800),
                               foregroundColor: Colors.black87,
-                              minimumSize: const Size(double.infinity, 48),
+                              minimumSize: const Size(double.infinity, 50),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                             ),
                             onPressed: () {
-                              AdHelper.showRewardedAd(
-                                context,
-                                rewardTitle: 'حاسبة الأهداف الذكية للفصل القادم',
-                                onRewardEarned: () {
-                                  final targetPass = isPrimary ? 5.0 : 10.0;
-                                  final targetGood = isPrimary ? 7.0 : 14.0;
-                                  final neededForPass = ((targetPass * 2) - finalAverage).clamp(0.0, maxScale.toDouble());
-                                  final neededForGood = ((targetGood * 2) - finalAverage).clamp(0.0, maxScale.toDouble());
-
-                                  showDialog(
-                                    context: context,
-                                    builder: (ctx) =__GT__ AlertDialog(
-                                      title: const Text('🎯 كم أحتاج في الفصل القادم؟'),
-                                      content: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text('معدلك الحالي: ${finalAverage.toStringAsFixed(2)} / $maxScale\n'),
-                                          Text(
-                                            '✅ لضمان معدل النجاح ($targetPass/$maxScale):\n'
-                                            'تحتاج في الفصل القادم إلى معدل: ${neededForPass.toStringAsFixed(2)} / $maxScale\n',
-                                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF147A42)),
-                                          ),
-                                          Text(
-                                            '🌟 للوصول إلى تقدير جيد ($targetGood/$maxScale):\n'
-                                            'تحتاج في الفصل القادم إلى معدل: ${neededForGood.toStringAsFixed(2)} / $maxScale\n',
-                                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo),
-                                          ),
-                                          const Text(
-                                            '💡 نصيحة: ركّز على رفع علامتك بـ +2 نقاط في المواد ذات المعاملات العالية لأنها تضاعف مجموع نقاطك بسرعة!',
-                                            style: TextStyle(fontSize: 13),
-                                          ),
-                                        ],
-                                      ),
-                                      actions: [
-                                        FilledButton(
-                                          onPressed: () =__GT__ Navigator.pop(ctx),
-                                          child: const Text('حسناً، فهمت'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
+                              _openThreeTrimesterTargetSetup(
+                                context: context,
+                                ctrl: ctrl,
+                                activeLevel: activeLevel,
+                                activeStream: activeStream,
+                                subjectIds: subjectIds,
+                                coeffsMap: coeffsMap,
+                                currentAverage: finalAverage,
+                                totalCoeffs: totalCoeffs,
+                                isPrimary: isPrimary,
+                                maxScale: maxScale,
+                                effectiveExamMode: effectiveExamMode,
                               );
                             },
-                            icon: const Icon(Icons.track_changes_rounded),
+                            icon: const Icon(Icons.assignment_turned_in_rounded),
                             label: const Text(
-                              '🎯 كم أحتاج في الفصل القادم للنجاح؟ (شاهد إعلاناً)',
-                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5),
+                              '🎯 كم أحتاج في الفصل 2 و 3 للنجاح؟ (كشف نقاط مفصل + نصائح)',
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
                             ),
                           ),
                           const SizedBox(height: 10),
