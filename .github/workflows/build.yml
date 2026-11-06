@@ -5197,7 +5197,7 @@ jobs:
                         isExamCertificateMode: effectiveExamMode,
                       ),
                     const SizedBox(height: 14),
-# 12. FILE 6 OF 7: lib/screens/tools_screen.dart
+          # 12. FILE 6 OF 7: lib/screens/tools_screen.dart
           write_file("lib/screens/tools_screen.dart", r'''import 'package:flutter/material.dart';
           import '../main.dart';
 
@@ -5244,15 +5244,15 @@ jobs:
             }
 
             String _mentionLabel(double avg, bool isPrimary, AppController ctrl) {
-              final normalized20 = isPrimary ? avg * 2.0 : avg;
+              final normalized20 = isPrimary ? (avg * 2.0) :avg;
               if (normalized20 __GT__= 16) {
-                return ctrl.tr('التقدير: جيد جداً 🌟 (Très Bien)', 'Mention : Très Bien 🌟', 'Mention: Very Good 🌟');
+                return ctrl.tr('التقدير-جيد جداً 🌟 (Très Bien)', 'Mention-Très Bien 🌟', 'Mention-Very Good 🌟');
               }
               if (normalized20 __GT__= 14) {
-                return ctrl.tr('التقدير: جيد 👏 (Bien)', 'Mention : Bien 👏', 'Mention: Good 👏');
+                return ctrl.tr('التقدير-جيد 👏 (Bien)', 'Mention-Bien 👏', 'Mention-Good 👏');
               }
               if (normalized20 __GT__= 12) {
-                return ctrl.tr('التقدير: قريب من الجيد (Assez Bien)', 'Mention : Assez Bien', 'Mention: Fairly Good');
+                return ctrl.tr('التقدير-قريب من الجيد (Assez Bien)', 'Mention-Assez Bien', 'Mention-Fairly Good');
               }
               if (normalized20 __GT__= 10) {
                 return ctrl.tr('التقدير: مقبول ✅ (Passable)', 'Mention : Passable ✅', 'Mention: Pass ✅');
@@ -5276,7 +5276,7 @@ jobs:
               int completedTrimesters = 1;
               final trim1Ctrl = TextEditingController(text: currentAverage.toStringAsFixed(2));
               final trim2Ctrl = TextEditingController(text: currentAverage.toStringAsFixed(2));
-              final targetGoalCtrl = TextEditingController(text: isPrimary ? '5.00' : '10.00');
+              final targetGoalCtrl = TextEditingController(text: isPrimary ? '5.00' :'10.00');
 
               showModalBottomSheet(
                 context: context,
