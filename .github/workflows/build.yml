@@ -61,6 +61,14 @@ jobs:
                           preloaded_paths.append(os.path.join(root_d, fn_d).replace("\\", "/"))
           preloaded_json_str = json.dumps(preloaded_paths)
 
+          built_in_paths = []
+          if os.path.exists("files"):
+              for r_dir, _, f_list in os.walk("files"):
+                  for fn in sorted(f_list):
+                      if fn.lower().endswith(".pdf"):
+                          built_in_paths.append(os.path.join(r_dir, fn).replace("\\", "/"))
+          built_in_json = json.dumps(built_in_paths)
+
           def restore_angles(text):
               return (
                   text.replace("__LT__", LT)
@@ -72,7 +80,7 @@ jobs:
                   .replace("__ADMOB_INTERSTITIAL_ID__", ADMOB_INTERSTITIAL_ID.strip())
                   .replace("__ADMOB_APP_OPEN_ID__", ADMOB_APP_OPEN_ID.strip())
                   .replace("__ADMOB_REWARDED_ID__", ADMOB_REWARDED_ID.strip())
-                  .replace("__PRELOADED_FILES_JSON__", preloaded_json_str)
+                  .replace("__BUILTIN_PATHS__", built_in_json)
               )
 
           def write_file(path, content):
@@ -1647,11 +1655,28 @@ jobs:
               final stateFile = await _resolveStorageFile();
 
               try {
+                const rawBuiltIn = r'''__BUILTIN_PATHS__''';
+                final builtInList = jsonDecode(rawBuiltIn);
+                if (builtInList is List) {
+                  final initialItems = __LT__Map__LT__String, dynamic__GT____GT__[];
+                  for (final p in builtInList) {
+                    final item = classifyFilePath(p.toString());
+                    if (item != null) {
+                      initialItems.add(item);
+                    }
+                  }
+                  if (initialItems.isNotEmpty) {
+                    uploadedFiles = initialItems;
+                  }
+                }
+              } catch (_) {}
+
+              try {
                 final cacheCatalogFile = File('$_appDataDirPath/study_dz_cloud_catalog.json');
                 if (await cacheCatalogFile.exists()) {
                   final raw = await cacheCatalogFile.readAsString();
                   final decoded = jsonDecode(raw);
-                  if (decoded is List) {
+                  if (decoded is List && decoded.length __GT__= uploadedFiles.length) {
                     uploadedFiles = decoded
                         .whereType__LT__Map__GT__()
                         .map((e) =__GT__ Map__LT__String, dynamic__GT__.from(e))
@@ -1667,10 +1692,10 @@ jobs:
                 }
               } catch (_) {}
 
-              await refreshCloudCatalog();
-           if (uploadedFiles.isEmpty) {
-             Future.delayed(const Duration(seconds:2), refreshCloudCatalog);
-           }
+              unawaited(refreshCloudCatalog());
+              Future.delayed(const Duration(seconds:4), () {
+                refreshCloudCatalog();
+              });
             }
 
             Future__LT__void__GT__ saveState() async {
