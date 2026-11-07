@@ -1655,8 +1655,7 @@ jobs:
               final stateFile = await _resolveStorageFile();
 
               try {
-                const rawBuiltIn = r'''__BUILTIN_PATHS__''';
-                final builtInList = jsonDecode(rawBuiltIn);
+                final List__LT__dynamic__GT__ builtInList = __BUILTIN_PATHS__;
                 if (builtInList is List) {
                   final initialItems = __LT__Map__LT__String, dynamic__GT____GT__[];
                   for (final p in builtInList) {
