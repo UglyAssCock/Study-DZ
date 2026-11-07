@@ -53,6 +53,14 @@ jobs:
           repo_full_name = os.environ.get("GITHUB_REPOSITORY", "UglyAssCock/Study-DZ")
           repo_branch = os.environ.get("GITHUB_REF_NAME", "main")
 
+          preloaded_paths = []
+          if os.path.exists("files"):
+              for root_d, _, fnames_d in os.walk("files"):
+                  for fn_d in sorted(fnames_d):
+                      if fn_d.lower().endswith(".pdf"):
+                          preloaded_paths.append(os.path.join(root_d, fn_d).replace("\\", "/"))
+          preloaded_json_str = json.dumps(preloaded_paths)
+
           def restore_angles(text):
               return (
                   text.replace("__LT__", LT)
@@ -64,6 +72,7 @@ jobs:
                   .replace("__ADMOB_INTERSTITIAL_ID__", ADMOB_INTERSTITIAL_ID.strip())
                   .replace("__ADMOB_APP_OPEN_ID__", ADMOB_APP_OPEN_ID.strip())
                   .replace("__ADMOB_REWARDED_ID__", ADMOB_REWARDED_ID.strip())
+                  .replace("__PRELOADED_FILES_JSON__", preloaded_json_str)
               )
 
           def write_file(path, content):
@@ -1024,6 +1033,7 @@ jobs:
               final lower = fname.toLowerCase();
               if (fname == 'icon.png' ||
                   fname == 'auto_catalog.json' ||
+                  fname == 'catalog_index.json' ||
                   fname == 'external_links.json' ||
                   fname == 'readme.txt' ||
                   fname == 'visited_hashes.txt' ||
@@ -1039,137 +1049,144 @@ jobs:
                 return null;
               }
 
-              final token = relPath.toLowerCase();
-
               if (['_sol.', '_cor.', '_corrige.'].any((k) =__GT__ lower.contains(k))) {
                 return null;
               }
 
+              final stem = dotIdx != -1 ? lower.substring(0, dotIdx) : lower;
+              final parts = stem.split(RegExp(r'[_-]+'));
+              final token = relPath.toLowerCase();
+
               int? detectedYear;
-              final yearMatch = RegExp(r'(200[89]|201[0-9]|202[0-6])').firstMatch(token);
+              final yearMatch = RegExp(r'(200[89]|201[0-9]|202[0-6])').firstMatch(stem);
               if (yearMatch != null) {
                 detectedYear = int.tryParse(yearMatch.group(1)!);
               }
 
-              final levelPatterns = __LT__String, List__LT__String__GT____GT__{
-                '1AP': ['1ap', '1_ap', '1ابتدائي', 'اولى_ابتدائي', 'أولى_ابتدائي'],
-                '2AP': ['2ap', '2_ap', '2ابتدائي', 'ثانية_ابتدائي'],
-                '3AP': ['3ap', '3_ap', '3ابتدائي', 'ثالثة_ابتدائي'],
-                '4AP': ['4ap', '4_ap', '4ابتدائي', 'رابعة_ابتدائي'],
-                '5AP': ['5ap', '5_ap', '5eme', 'cinquieme', '5ابتدائي', 'خامسة_ابتدائي', 'سانكيام'],
-                '1AM': ['1am', '1_am', '1متوسط', 'اولى_متوسط', 'أولى_متوسط'],
-                '2AM': ['2am', '2_am', '2متوسط', 'ثانية_متوسط'],
-                '3AM': ['3am', '3_am', '3متوسط', 'ثالثة_متوسط'],
-                '4AM': ['4am', '4_am', 'bem', '4متوسط', 'رابعة_متوسط', 'بيام'],
-                '1AS': ['1as', '1_as', '1ثانوي', 'اولى_ثانوي', 'أولى_ثانوي'],
-                '2AS': ['2as', '2_as', '2ثانوي', 'ثانية_ثانوي'],
-                '3AS': ['3as', '3_as', 'bac', '3ثانوي', 'ثالثة_ثانوي', 'بكالوريا', 'باك'],
-              };
-
+              // 1. تحديد المستوى الدراسي بدقة من الكلمات المفصولة
               String detectedLevel = '3AS';
-              for (final entry in levelPatterns.entries) {
-                if (entry.value.any((k) =__GT__ token.contains(k))) {
-                  detectedLevel = entry.key;
+              const exactLevels = ['1ap', '2ap', '3ap', '4ap', '5ap', '1am', '2am', '3am', '4am', '1as', '2as', '3as'];
+              for (final lv in exactLevels) {
+                if (parts.contains(lv) || token.contains('/$lv/')) {
+                  detectedLevel = lv.toUpperCase();
                   break;
                 }
               }
+              if (parts.contains('bem')) detectedLevel = '4AM';
+              if (parts.contains('bac')) detectedLevel = '3AS';
+              if (parts.contains('5eme')) detectedLevel = '5AP';
 
-              final subjectPatterns = __LT__String, List__LT__String__GT____GT__{
-                'math': ['math', 'رياضيات'],
-                'arabic': ['arab', '_ar', '-ar', 'عربي', 'عربيه', 'عربية'],
-                'physics': ['phys', 'فيزياء', 'فيزيائية'],
-                'science': ['sci', 'snv', 'علوم', 'طبيعة', 'طبيعه'],
-                'french': ['fren', 'franc', '_fr', '-fr', 'فرنسي', 'فرنسية'],
-                'english': ['engl', '_en', '-en', 'انجليزي', 'إنجليزي', 'انجليزية'],
-                'hisgeo': ['his', 'geo', 'تاريخ', 'جغرافيا', 'اجتماعيات'],
-                'islamic': ['isl', 'تربية_اسلامية', 'إسلامية', 'اسلامية', 'شريعة'],
-                'civics': ['civ', 'مدنية', 'مدنيه'],
-                'cs': ['info', 'informatique', 'اعلام', 'إعلام', 'حاسوب'],
-                'philo': ['philo', 'فلسفة', 'فلسفه'],
-                'accounting': ['gest', 'compta', 'محاسبة', 'تسيير'],
-                'economy': ['econ', 'اقتصاد', 'مناجمنت'],
-                'law': ['law', 'droit', 'قانون'],
-                'engineering': ['tech', 'genie', 'هندسة', 'تكنولوجيا'],
-                'third_lang': ['esp', 'allem', 'ital', 'اسبانية', 'ألمانية', 'المانية', 'ايطالية'],
-                'amazigh': ['amaz', 'tamaz', 'امازيغية', 'أمازيغية'],
-                'art': ['art', 'music', 'تشكيلية', 'موسيقية', 'رسم'],
-              };
-
-              String detectedSubject = 'math';
-              for (final entry in subjectPatterns.entries) {
-                if (entry.value.any((k) =__GT__ token.contains(k))) {
-                  detectedSubject = entry.key;
-                  break;
+              // 2. تحديد المادة الدراسية أولاً من الكلمات المفصولة بالشرطة السفلية (_) لمنع أي تداخل
+              String? detectedSubject;
+              const exactSubjects = [
+                'math', 'arabic', 'physics', 'science', 'french', 'english',
+                'hisgeo', 'islamic', 'philo', 'civics', 'cs', 'accounting',
+                'economy', 'law', 'engineering', 'third_lang', 'amazigh', 'art'
+              ];
+              if (stem.contains('third_lang')) {
+                detectedSubject = 'third_lang';
+              } else {
+                for (final sb in exactSubjects) {
+                  if (parts.contains(sb)) {
+                    detectedSubject = sb;
+                    break;
+                  }
                 }
               }
 
+              if (detectedSubject == null) {
+                final subjectFallback = __LT__String, List__LT__String__GT____GT__{
+                  'math': ['رياضيات', 'mathematiques'],
+                  'arabic': ['عربية', 'عربي', 'arabe'],
+                  'physics': ['فيزياء', 'فيزيائية', 'physique'],
+                  'science': ['طبيعة', 'طبيعية', 'snv'],
+                  'french': ['فرنسية', 'فرنسي', 'francais'],
+                  'english': ['انجليزية', 'إنجليزية', 'anglais'],
+                  'hisgeo': ['تاريخ', 'جغرافيا', 'histoire'],
+                  'islamic': ['اسلامية', 'إسلامية', 'شريعة', 'islamia'],
+                  'civics': ['مدنية', 'civique'],
+                  'cs': ['اعلام', 'إعلام', 'معلوماتية', 'informatique'],
+                  'philo': ['فلسفة', 'philosophie'],
+                  'accounting': ['محاسبة', 'comptabilite'],
+                  'economy': ['اقتصاد', 'economie'],
+                  'law': ['قانون', 'droit'],
+                  'engineering': ['هندسة', 'تكنولوجيا', 'genie'],
+                  'third_lang': ['اسبانية', 'المانية', 'ايطالية', 'espagnol', 'allemand', 'italien'],
+                  'amazigh': ['امازيغية', 'أمازيغية', 'tamazight'],
+                  'art': ['تشكيلية', 'موسيقية'],
+                };
+                for (final entry in subjectFallback.entries) {
+                  if (entry.value.any((k) =__GT__ stem.contains(k))) {
+                    detectedSubject = entry.key;
+                    break;
+                  }
+                }
+              }
+              detectedSubject ??= 'math';
+
+              // 3. تحديد الشعبة بدقة من الكلمات المفصولة
               String detectedStream = 'ALL';
-              if (['_tc_l', '-tc_l', 'literary-1as', 'ج_م_آ', 'آداب_1'].any((k) =__GT__ token.contains(k))) {
+              if (stem.contains('tc_l') || stem.contains('ج_م_آ')) {
                 detectedStream = 'TC_L';
-              } else if (['_tc_st', '-tc_st', 'science-1as', 'ج_م_ع'].any((k) =__GT__ token.contains(k))) {
+              } else if (stem.contains('tc_st') || stem.contains('ج_م_ع')) {
                 detectedStream = 'TC_ST';
-              } else if (['_lp', '-lp', '/lp/', 'literary', 'آداب', 'اداب'].any((k) =__GT__ token.contains(k))) {
+              } else if (parts.contains('lp') || stem.contains('آداب')) {
                 detectedStream = 'LP';
-              } else if (['_ge', '-ge', '/ge/', 'management', 'تسيير'].any((k) =__GT__ token.contains(k))) {
+              } else if (parts.contains('ge') || stem.contains('تسيير')) {
                 detectedStream = 'GE';
-              } else if (['_le', '-le', '/le/', 'foreign', 'لغات'].any((k) =__GT__ token.contains(k))) {
+              } else if (parts.contains('le') || stem.contains('لغات')) {
                 detectedStream = 'LE';
-              } else if (['_tm', '-tm', '/tm/', 'tech-math', 'تقني'].any((k) =__GT__ token.contains(k))) {
+              } else if (parts.contains('tm') || stem.contains('تقني')) {
                 detectedStream = 'TM';
-              } else if (['_mt', '-mt', 'smath', '/mt/', 'exams-math', 'tests-math'].any((k) =__GT__ token.contains(k))) {
+              } else if (parts.contains('mt') || parts.contains('math_stream')) {
                 detectedStream = 'MATH';
-              } else if (['_se', '-se', '/se/', 'exams-science', 'tests-science', 'تجريبية'].any((k) =__GT__ token.contains(k))) {
+              } else if (parts.contains('se') || stem.contains('تجريبية')) {
                 detectedStream = 'SE';
               }
 
-              // قفل المواد الخاصة بكل شعبة في التعليم الثانوي حتى لا تظهر أبداً في شعبة خاطئة
               if (['accounting', 'economy', 'law'].contains(detectedSubject)) {
                 detectedStream = 'GE';
               } else if (detectedSubject == 'engineering') {
-                detectedStream = detectedLevel == '1AS' ? 'TC_ST' : 'TM';
+                detectedStream = detectedLevel == '1AS' ? 'TC_ST' :'TM';
               } else if (detectedSubject == 'third_lang') {
                 detectedStream = 'LE';
               }
 
-              final hasTrimesterTag = ['_t1', '_t2', '_t3', '_lesson', '_resume', '_test', '_book']
-                  .any((k) =__GT__ token.contains(k));
-              final hasArchiveKeyword = ['bac', 'bem', '5eme', 'cinquieme', 'بكالوريا', 'باك', 'بيام', 'سانكيام']
-                  .any((k) =__GT__ token.contains(k));
+              // 4. تحديد القسم (درس / ملخص / فرض / اختبار / كتاب) بدقة من الكلمات المفصولة
+              String detectedCategory = 'exams';
+              if (parts.contains('book') || parts.contains('books') || stem.contains('كتاب')) {
+                detectedCategory = 'books';
+              } else if (parts.contains('lesson') || parts.contains('lessons') || parts.contains('cours') || stem.contains('درس') || stem.contains('دروس')) {
+                detectedCategory = 'lessons';
+              } else if (parts.contains('resume') || parts.contains('resumes') || parts.contains('summary') || stem.contains('ملخص')) {
+                detectedCategory = 'summaries';
+              } else if (parts.contains('test') || parts.contains('tests') || parts.contains('devoir') || stem.contains('فرض')) {
+                detectedCategory = 'tests';
+              } else if (parts.contains('exam') || parts.contains('exams') || parts.contains('sujet') || stem.contains('اختبار')) {
+                detectedCategory = 'exams';
+              }
+
+              final hasTrimesterTag = parts.contains('t1') || parts.contains('t2') || parts.contains('t3') ||
+                  ['lesson', 'resume', 'test', 'book'].any((k) =__GT__ parts.contains(k));
+              final hasArchiveKeyword = parts.contains('bac') || parts.contains('bem') || parts.contains('5eme') ||
+                  ['بكالوريا', 'بيام', 'سانكيام'].any((k) =__GT__ stem.contains(k));
               final isOfficialArchive = !hasTrimesterTag && (hasArchiveKeyword || detectedYear != null);
 
               String archiveCycle = 'secondaire';
-              if (['5eme', '5ap', 'cinquieme', 'سانكيام', 'ابتدائي'].any((k) =__GT__ token.contains(k)) ||
-                  detectedLevel.endsWith('AP')) {
+              if (parts.contains('5eme') || detectedLevel.endsWith('AP')) {
                 archiveCycle = 'primaire';
-              } else if (['bem', '4am', 'بيام', 'متوسط'].any((k) =__GT__ token.contains(k)) ||
-                  detectedLevel.endsWith('AM')) {
+              } else if (parts.contains('bem') || detectedLevel.endsWith('AM')) {
                 archiveCycle = 'moyen';
               }
 
-              final categoryPatterns = __LT__String, List__LT__String__GT____GT__{
-                'books': ['book', 'livre', 'manuel', 'كتاب', 'كتب'],
-                'exams': ['exam', 'sujet', 'اختبار', 'اختبارات', 'امتحان'],
-                'tests': ['test', 'devoir', 'فرض', 'فروض'],
-                'summaries': ['resum', 'summar', 'ملخص', 'ملخصات'],
-                'lessons': ['lesson', 'cours', 'درس', 'دروس'],
-              };
-
-              String detectedCategory = 'lessons';
-              for (final entry in categoryPatterns.entries) {
-                if (entry.value.any((k) =__GT__ token.contains(k))) {
-                  detectedCategory = entry.key;
-                  break;
-                }
-              }
-
               int detectedTrim = 1;
-              if (['_t3', '-t3', 'trim3', 'فصل3', 'الفصل_الثالث', 'ثالث'].any((k) =__GT__ token.contains(k))) {
+              if (parts.contains('t3') || stem.contains('trim3') || stem.contains('الفصل_الثالث')) {
                 detectedTrim = 3;
-              } else if (['_t2', '-t2', 'trim2', 'فصل2', 'الفصل_الثاني'].any((k) =__GT__ token.contains(k))) {
+              } else if (parts.contains('t2') || stem.contains('trim2') || stem.contains('الفصل_الثاني')) {
                 detectedTrim = 2;
               }
 
-              final rawTitle = dotIdx != -1 ? fname.substring(0, dotIdx) : fname;
+              final rawTitle = dotIdx != -1 ? fname.substring(0, dotIdx) :fname;
               final cleanTitle = rawTitle.replaceAll('_', ' ').replaceAll('-', ' ').trim();
               final encodedPath = relPath.split('/').map(Uri.encodeComponent).join('/');
               final downloadUrl = 'https://raw.githubusercontent.com/$githubRepo/$githubBranch/$encodedPath';
@@ -1182,7 +1199,7 @@ jobs:
                 'subject': detectedSubject,
                 'trimester': detectedTrim,
                 'category': detectedCategory,
-                'type': ext == '.pdf' ? 'pdf' : 'image',
+                'type': ext == '.pdf' ? 'pdf' :'image',
                 'is_archive': isOfficialArchive,
                 'archive_cycle': archiveCycle,
                 'stream': detectedStream,
@@ -1416,31 +1433,57 @@ jobs:
 
               try {
                 final client = HttpClient();
-                client.connectionTimeout = const Duration(seconds: 12);
-                final treeUri = Uri.parse(
-                  'https://api.github.com/repos/$githubRepo/git/trees/$githubBranch?recursive=1',
+                client.connectionTimeout = const Duration(seconds:10);
+                final indexUri = Uri.parse(
+                  'https://raw.githubusercontent.com/$githubRepo/$githubBranch/files/index.txt?t=${DateTime.now().millisecondsSinceEpoch}',
                 );
-                final req = await client.getUrl(treeUri);
+                final req = await client.getUrl(indexUri);
                 req.headers.set('User-Agent', 'StudyDZ-App');
-                req.headers.set('Accept', 'application/vnd.github.v3+json');
-                final resp = await req.close().timeout(const Duration(seconds: 15));
+                final resp = await req.close().timeout(const Duration(seconds:12));
                 if (resp.statusCode == 200) {
                   final body = await resp.transform(utf8.decoder).join();
-                  final decoded = jsonDecode(body) as Map__LT__String, dynamic__GT__;
-                  final tree = (decoded['tree'] as List?) ?? [];
-                  for (final node in tree) {
-                    if (node is Map && node['type'] == 'blob') {
-                      final path = node['path']?.toString() ?? '';
-                      if (path.startsWith('files/') || path.startsWith('assets/') || path.startsWith('uploads/')) {
-                        final item = classifyFilePath(path);
-                        if (item != null) {
-                          discovered.add(item);
-                        }
+                  final lines = body.split('\n');
+                  for (final rawLine in lines) {
+                    final path = rawLine.trim();
+                    if (path.isNotEmpty) {
+                      final item = classifyFilePath(path);
+                      if (item != null) {
+                        discovered.add(item);
                       }
                     }
                   }
                 }
               } catch (_) {}
+
+              if (discovered.isEmpty) {
+                try {
+                  final client = HttpClient();
+                  client.connectionTimeout = const Duration(seconds:12);
+                  final treeUri = Uri.parse(
+                    'https://api.github.com/repos/$githubRepo/git/trees/$githubBranch?recursive=1',
+                  );
+                  final req = await client.getUrl(treeUri);
+                  req.headers.set('User-Agent', 'StudyDZ-App');
+                  req.headers.set('Accept', 'application/vnd.github.v3+json');
+                  final resp = await req.close().timeout(const Duration(seconds:15));
+                  if (resp.statusCode == 200) {
+                    final body = await resp.transform(utf8.decoder).join();
+                    final decoded = jsonDecode(body) as Map__LT__String, dynamic__GT__;
+                    final tree = (decoded['tree'] as List?) ?? [];
+                    for (final node in tree) {
+                      if (node is Map && node['type'] == 'blob') {
+                        final path = node['path']?.toString() ?? '';
+                        if (path.startsWith('files/') || path.startsWith('assets/') || path.startsWith('uploads/')) {
+                          final item = classifyFilePath(path);
+                          if (item != null) {
+                            discovered.add(item);
+                          }
+                        }
+                      }
+                    }
+                  }
+                } catch (_) {}
+              }
 
               if (discovered.isNotEmpty) {
                 uploadedFiles = discovered;
@@ -1454,7 +1497,7 @@ jobs:
               notifyListeners();
               return uploadedFiles.length;
             }
-
+            
             File getLocalCachedFile(Map__LT__String, dynamic__GT__ fileItem) {
               final rawPath = fileItem['path']?.toString() ?? fileItem['title']?.toString() ?? 'doc.pdf';
               final safeName = rawPath.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
@@ -1624,7 +1667,10 @@ jobs:
                 }
               } catch (_) {}
 
-              unawaited(refreshCloudCatalog());
+              await refreshCloudCatalog();
+           if (uploadedFiles.isEmpty) {
+             Future.delayed(const Duration(seconds:2), refreshCloudCatalog);
+           }
             }
 
             Future__LT__void__GT__ saveState() async {
