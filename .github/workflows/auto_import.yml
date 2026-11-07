@@ -257,24 +257,24 @@ jobs:
           ]
 
           subject_rules = [
-              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية", "natural-sciences", "sciences-naturelles", "snv", "/science/", "/sciences/"]),
-              ("physics", ["العلوم الفيزيائية", "الفيزياء", "فيزياء", "physique", "physics", "/phys/"]),
-              ("math", ["الرياضيات", "رياضيات", "/maths/", "mathematiques", "mathematics", "/math/"]),
+              ("math", ["الرياضيات", "رياضيات", "/maths/", "/math/", "mathematiques", "mathematics"]),
+              ("physics", ["العلوم الفيزيائية", "الفيزياء", "فيزياء", "/physics/", "/physique/", "/phys/"]),
+              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية", "natural-sciences", "sciences-naturelles", "snv", "/sciences/"]),
               ("arabic", ["اللغة العربية", "الأدب العربي", "عربية", "/arabic/", "/arabe/"]),
-              ("french", ["اللغة الفرنسية", "فرنسية", "francais", "/french/"]),
-              ("english", ["اللغة الإنجليزية", "اللغة الانجليزية", "إنجليزية", "انجليزية", "anglais", "/english/"]),
-              ("hisgeo", ["التاريخ والجغرافيا", "التاريخ و الجغرافيا", "تاريخ", "جغرافيا", "history-geography", "histoire", "hisgeo", "/history/"]),
-              ("islamic", ["العلوم الإسلامية", "التربية الإسلامية", "التربية الاسلامية", "شريعة", "islamic-education", "islamia", "/islamic/", "sciences-islamiques"]),
-              ("philo", ["الفلسفة", "فلسفة", "philosophie", "philosophy", "/philo/"]),
-              ("civics", ["التربية المدنية", "مدنية", "civic-education", "civique", "/civics/", "education-civique"]),
-              ("cs", ["الإعلام الآلي", "الاعلام الالي", "معلوماتية", "computer-science", "informatique"]),
-              ("accounting", ["التسيير المحاسبي", "محاسبة", "accounting", "comptabilite", "gestion"]),
-              ("economy", ["الاقتصاد والمناجمنت", "الإقتصاد والمناجمنت", "اقتصاد", "economics", "economie"]),
-              ("law", ["القانون", "القانــــون", "droit", "/law/"]),
-              ("engineering", ["الهندسة المدنية", "الهندسة الكهربائية", "الهندسة الميكانيكية", "هندسة الطرائق", "الهندسة", "هندسة", "تكنولوجيا", "engineering", "genie-", "technologie"]),
-              ("amazigh", ["اللغة الأمازيغية", "أمازيغية", "امازيغية", "amazigh", "tamazight"]),
-              ("third_lang", ["اللغة الإيطالية", "اللغة الإسبانية", "اللغة الألمانية", "اسبانية", "المانية", "ايطالية", "espagnol", "allemand", "italien", "spanish", "german", "italian"]),
-              ("art", ["التربية التشكيلية", "التربية الموسيقية", "التربية الفنية", "تشكيلية", "موسيقية", "art-education", "music-education", "artistique", "musicale"]),
+              ("french", ["اللغة الفرنسية", "فرنسية", "/francais/", "/french/"]),
+              ("english", ["اللغة الإنجليزية", "اللغة الانجليزية", "إنجليزية", "انجليزية", "/anglais/", "/english/"]),
+              ("hisgeo", ["التاريخ والجغرافيا", "التاريخ و الجغرافيا", "تاريخ", "جغرافيا", "history-geography", "histoire-geographie", "/history/", "/histoire/"]),
+              ("islamic", ["العلوم الإسلامية", "التربية الإسلامية", "التربية الاسلامية", "شريعة", "islamic-education", "sciences-islamiques", "/islamic/", "/islamia/"]),
+              ("philo", ["الفلسفة", "فلسفة", "/philosophie/", "/philosophy/", "/philo/"]),
+              ("civics", ["التربية المدنية", "مدنية", "civic-education", "education-civique", "/civic/", "/civics/"]),
+              ("cs", ["الإعلام الآلي", "الاعلام الالي", "معلوماتية", "computer-science", "/informatique/"]),
+              ("accounting", ["التسيير المحاسبي", "محاسبة", "/accounting/", "/comptabilite/", "/gestion/"]),
+              ("economy", ["الاقتصاد والمناجمنت", "الإقتصاد والمناجمنت", "اقتصاد", "/economics/", "/economie/"]),
+              ("law", ["القانون", "القانــــون", "/droit/", "/law/"]),
+              ("engineering", ["الهندسة المدنية", "الهندسة الكهربائية", "الهندسة الميكانيكية", "هندسة الطرائق", "الهندسة", "هندسة", "تكنولوجيا", "/engineering/", "genie-", "/technologie/"]),
+              ("amazigh", ["اللغة الأمازيغية", "أمازيغية", "امازيغية", "/amazigh/", "/tamazight/"]),
+              ("third_lang", ["اللغة الإيطالية", "اللغة الإسبانية", "اللغة الألمانية", "اسبانية", "المانية", "ايطالية", "/espagnol/", "/allemand/", "/italien/", "/spanish/", "/german/", "/italian/"]),
+              ("art", ["التربية التشكيلية", "التربية الموسيقية", "التربية الفنية", "تشكيلية", "موسيقية", "art-education", "music-education"]),
           ]
 
           stream_rules = [
@@ -285,7 +285,7 @@ jobs:
               ("tm", ["تقني رياضي", "التقني الرياضي", "هندسة مدنية", "هندسة كهربائية", "هندسة ميكانيكية", "هندسة الطرائق", "تقني-رياضي", "tech-math", "genie-"]),
               ("le", ["لغات أجنبية", "لغات اجنبية", "إسبانية", "ألمانية", "إيطالية", "لغات-أجنبية", "foreign-languages", "langues", "espagnol", "allemand", "italien"]),
               ("mt", ["شعبة رياضيات", "شعبة الرياضيات", "exams-math", "tests-math", "/mathematics/"]),
-              ("se", ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "علوم-تجريبية", "/sciences/"]),
+              ("se", ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "علوم-تجريبية"]),
           ]
 
           def detect_trimester_strict(text, fallback_trim="t1"):
@@ -304,10 +304,42 @@ jobs:
                   return "t1"
               return fallback_trim
 
+          def detect_category_strict(text, fallback_cat="exam"):
+              # Remove generic website slogans that contain all categories together
+              t = text.lower()
+              for slogan in ["دروس وفروض واختبارات", "فروض واختبارات", "دروس مفصلة", "موقع الدراسة"]:
+                  t = t.replace(slogan, " ")
+
+              # 1. Check URL slugs first (100% accurate)
+              if any(w in t for w in ["/books", "/book", "/livres", "/manuel"]):
+                  return "book"
+              if any(w in t for w in ["/summaries", "/summary", "/resumes", "/resume"]):
+                  return "resume"
+              if any(w in t for w in ["/lessons", "/lesson", "/cours"]):
+                  return "lesson"
+              if any(w in t for w in ["/tests-", "/tests/", "/devoirs"]):
+                  return "test"
+              if any(w in t for w in ["/exams-", "/exams/", "/examens"]):
+                  return "exam"
+
+              # 2. Check specific Arabic title keywords (check book/resume/lesson BEFORE test/exam!)
+              if any(w in t for w in ["الكتاب المدرسي", "كتاب ", "كتب "]):
+                  return "book"
+              if any(w in t for w in ["ملخص", "ملخصات"]):
+                  return "resume"
+              if any(w in t for w in ["درس ", "دروس ", "مذكرة ", "مذكرات "]):
+                  return "lesson"
+              if any(w in t for w in ["فرض ", "فروض "]):
+                  return "test"
+              if any(w in t for w in ["اختبار", "إختبار", "امتحان"]):
+                  return "exam"
+              return fallback_cat
+
           def analyze_metadata(text, parent_meta=None):
               t = text.lower()
+              for slogan in ["دروس وفروض واختبارات", "موقع الدراسة الجزائري"]:
+                  t = t.replace(slogan, " ")
 
-              # Skip Elementary School (1AP-5AP) completely
               if any(w in t for w in ["ابتدائي", "إبتدائي", "-primary", "primaire", "1ap", "2ap", "3ap", "4ap", "5ap", "5eme", "cinquieme"]):
                   return {"skip": True}
 
@@ -352,11 +384,17 @@ jobs:
                   else:
                       level = "3as"
 
+              # Check URL slugs for subject first before Arabic text
               subject = None
               for code, keys in subject_rules:
-                  if any(k in t for k in keys):
+                  if any(k in t for k in keys if k.startswith("/")):
                       subject = code
                       break
+              if not subject:
+                  for code, keys in subject_rules:
+                      if any(k in t for k in keys):
+                          subject = code
+                          break
               if not subject and parent_meta:
                   subject = parent_meta.get("subject")
 
@@ -366,7 +404,6 @@ jobs:
                       stream = code
                       break
 
-              # Auto-assign stream for stream-exclusive High School subjects
               if not stream and level in ["1as", "2as", "3as"]:
                   if subject in ["accounting", "economy", "law"]:
                       stream = "ge"
@@ -382,17 +419,8 @@ jobs:
               fallback_t = parent_meta.get("trimester", "t1") if parent_meta else "t1"
               trimester = detect_trimester_strict(t, fallback_trim=fallback_t)
 
-              category = parent_meta.get("category", "exam") if parent_meta else "exam"
-              if any(w in t for w in ["books", "book", "livre", "manuel", "كتاب", "الكتاب المدرسي", "كتب"]):
-                  category = "book"
-              elif any(w in t for w in ["summaries", "summary", "resumes", "resume", "ملخص", "ملخصات"]):
-                  category = "resume"
-              elif any(w in t for w in ["tests-term", "tests", "test", "devoirs", "devoir", "فرض", "فروض"]):
-                  category = "test"
-              elif any(w in t for w in ["lessons", "lesson", "cours", "درس", "دروس", "مذكرات"]):
-                  category = "lesson"
-              elif any(w in t for w in ["exams-term", "exams", "exam", "اختبار", "اختبارات", "إختبار"]):
-                  category = "exam"
+              fallback_c = parent_meta.get("category", "exam") if parent_meta else "exam"
+              category = detect_category_strict(t, fallback_cat=fallback_c)
 
               return {
                   "skip": False,
@@ -579,17 +607,6 @@ jobs:
                   mark_visited(url)
                   return False
 
-              if parent_meta:
-                  if parent_meta.get("level"):
-                      meta["level"] = parent_meta["level"]
-                  if parent_meta.get("subject"):
-                      meta["subject"] = parent_meta["subject"]
-                  if parent_meta.get("trimester"):
-                      meta["trimester"] = parent_meta["trimester"]
-                  if parent_meta.get("category"):
-                      meta["category"] = parent_meta["category"]
-                  if parent_meta.get("stream"):
-                      meta["stream"] = parent_meta["stream"]
 
               if not meta["subject"]:
                   try:
