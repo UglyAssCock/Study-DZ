@@ -17,7 +17,7 @@ on:
         required: true
         default: 'ALL'
       target_filter:
-        description: 'Target: ALL, bac, bem, 3as, 2as, 1as, 4am, 3am, 2am, 1am'
+        description: 'Target: ALL, bac, bem, 5eme, 3as, 2as, 1as, 4am, 3am, 2am, 1am, 5ap, 4ap, 3ap, 2ap, 1ap'
         required: true
         default: 'ALL'
       max_files_per_run:
@@ -33,13 +33,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout Repository
+      - name: Checkout Repository with Full History
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Scraper and PDF Merger Libraries
         run: pip install requests beautifulsoup4 pillow lxml pypdf
 
-      - name: Clean Wrong Files, Merge BAC Corrections, and Harvest
+      - name: Restore Elementary Files, Clean Duplicates, and Harvest
         env:
           EVENT_NAME: ${{ github.event_name }}
           SITE_CHOICE: ${{ github.event.inputs.site_choice }}
@@ -63,7 +65,7 @@ jobs:
           from pypdf import PdfReader, PdfWriter
 
           start_time = time.time()
-          MAX_RUNTIME_SECONDS = 32 * 60  # Stop cleanly at 32 minutes so GitHub never kills the job
+          MAX_RUNTIME_SECONDS = 32 * 60
 
           def is_time_up():
               return (time.time() - start_time) > MAX_RUNTIME_SECONDS
@@ -87,8 +89,65 @@ jobs:
           subprocess.run(["git", "config", "user.name", "StudyDZ-Harvester"], check=False)
           subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
 
+          lock = threading.Lock()
+          saved_total = 0
+
+          def write_index_and_push(msg):
+              with lock:
+                  all_rel_pdfs = []
+                  for r_dir, _, f_list in os.walk("files"):
+                      for fn in sorted(f_list):
+                          if fn.lower().endswith(".pdf"):
+                              all_rel_pdfs.append(os.path.join(r_dir, fn).replace("\\", "/"))
+                  with open("files/index.txt", "w", encoding="utf-8") as idx_f:
+                      idx_f.write("\n".join(all_rel_pdfs))
+                  subprocess.run(["git", "pull", "--rebase", "--autostash"], check=False)
+                  subprocess.run(["git", "add", "-A", "files/"], check=False)
+                  res = subprocess.run(["git", "diff", "--staged", "--quiet"])
+                  if res.returncode != 0:
+                      subprocess.run(["git", "commit", "-m", msg], check=False)
+                      subprocess.run(["git", "push"], check=False)
+
           # =====================================================================
-          # STEP 1: CLEAN DUPLICATES, ELEMENTARY FILES, AND WRONG-STREAM FILES
+          # STEP 0: AUTOMATICALLY RESTORE ANY DELETED ELEMENTARY SCHOOL PDFS
+          # =====================================================================
+          restored_count = 0
+          try:
+              log_out = subprocess.check_output(
+                  ["git", "log", "--diff-filter=D", "--name-only", "--pretty=format:__COMMIT__%H", "-n", "40"],
+                  text=True
+              )
+              curr_commit = None
+              commit_to_files = {}
+              for line in log_out.splitlines():
+                  line = line.strip()
+                  if line.startswith("__COMMIT__"):
+                      curr_commit = line.replace("__COMMIT__", "").strip()
+                  elif curr_commit and line.lower().endswith(".pdf"):
+                      fn_low = os.path.basename(line).lower()
+                      is_elem = fn_low.startswith(("1ap_", "2ap_", "3ap_", "4ap_", "5ap_", "5eme_")) or any(
+                          f"/{fld}/" in line.lower() for fld in ["1ap", "2ap", "3ap", "4ap", "5ap", "5eme"]
+                      )
+                      if is_elem and not os.path.exists(line):
+                          commit_to_files.setdefault(curr_commit, []).append(line)
+
+              for c_hash, file_list in commit_to_files.items():
+                  # Restore in batches of 50 files for speed
+                  for i in range(0, len(file_list), 50):
+                      batch = [f for f in file_list[i:i+50] if not os.path.exists(f)]
+                      if batch:
+                          res = subprocess.run(["git", "checkout", f"{c_hash}~1", "--"] + batch, check=False)
+                          if res.returncode == 0:
+                              restored_count += len(batch)
+          except Exception as e:
+              print("Restore check warning:", e)
+
+          if restored_count > 0:
+              print(f"Restored {restored_count} Elementary School PDFs from Git history!")
+              write_index_and_push(f"Restored {restored_count} Elementary School PDFs")
+
+          # =====================================================================
+          # STEP 1: CLEAN DUPLICATES AND WRONG-STREAM HIGH SCHOOL FILES ONLY
           # =====================================================================
           valid_streams = {"se", "mt", "tm", "ge", "lp", "le", "tc_st", "tc_l"}
           cleaned_count = 0
@@ -107,11 +166,7 @@ jobs:
               fn = os.path.basename(p)
               lower_fn = fn.lower()
               try:
-                  if lower_fn.startswith(("1ap_", "2ap_", "3ap_", "4ap_", "5ap_", "5eme_")):
-                      os.remove(p)
-                      cleaned_count += 1
-                      continue
-
+                  # Only check stream tags on High School files (1as, 2as, 3as) — NEVER touch 1ap-5ap!
                   if lower_fn.startswith(("1as_", "2as_", "3as_")):
                       parts = lower_fn.replace(".pdf", "").split("_")
                       has_stream = any(st in parts for st in valid_streams) or ("tc" in parts and ("st" in parts or "l" in parts))
@@ -120,8 +175,8 @@ jobs:
                           cleaned_count += 1
                           continue
 
-                  if lower_fn.startswith(("bac_", "bem_")):
-                      m = re.match(r'^(bac_\d{4}_[a-z0-9]+_[a-z0-9]+|bem_\d{4}_[a-z0-9]+)', lower_fn)
+                  if lower_fn.startswith(("bac_", "bem_", "5eme_")):
+                      m = re.match(r'^(bac_\d{4}_[a-z0-9]+_[a-z0-9]+|bem_\d{4}_[a-z0-9]+|5eme_\d{4}_[a-z0-9]+)', lower_fn)
                       if not m or any(k in lower_fn for k in ["_sol.", "_cor.", "_corrige."]):
                           os.remove(p)
                           cleaned_count += 1
@@ -155,31 +210,11 @@ jobs:
               for h in sorted(content_hashes):
                   cf.write(h + "\n")
 
-          lock = threading.Lock()
-          saved_total = 0
-
-          def write_index_and_push(msg):
-              with lock:
-                  all_rel_pdfs = []
-                  for r_dir, _, f_list in os.walk("files"):
-                      for fn in sorted(f_list):
-                          if fn.lower().endswith(".pdf"):
-                              all_rel_pdfs.append(os.path.join(r_dir, fn).replace("\\", "/"))
-                  with open("files/index.txt", "w", encoding="utf-8") as idx_f:
-                      idx_f.write("\n".join(all_rel_pdfs))
-                  subprocess.run(["git", "pull", "--rebase", "--autostash"], check=False)
-                  subprocess.run(["git", "add", "-A", "files/"], check=False)
-                  res = subprocess.run(["git", "diff", "--staged", "--quiet"])
-                  if res.returncode != 0:
-                      subprocess.run(["git", "commit", "-m", msg], check=False)
-                      subprocess.run(["git", "push"], check=False)
-
-          if cleaned_count > 0:
-              print(f"Cleaned {cleaned_count} duplicate or wrong-stream PDFs.")
-              write_index_and_push(f"Cleaned {cleaned_count} duplicate/wrong-stream PDFs")
+          # Always write files/index.txt at startup so the app immediately sees all restored files
+          write_index_and_push(f"Synced index ({len(content_hashes)} total unique PDFs)")
 
           # =====================================================================
-          # STEP 2: METADATA RULES & STRICT CLASSIFICATION
+          # STEP 2: METADATA RULES & STRICT CLASSIFICATION (ALL 3 CYCLES)
           # =====================================================================
           headers = {
               "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
@@ -189,8 +224,6 @@ jobs:
               max_to_save = int(os.environ.get("MAX_FILES", "400").strip() or "400")
           except Exception:
               max_to_save = 400
-
-          event_name = os.environ.get("EVENT_NAME", "").strip()
 
           def url_hash(u):
               return hashlib.md5(u.strip().encode("utf-8")).hexdigest()[:12]
@@ -225,12 +258,12 @@ jobs:
                   return subject_bytes
 
           def register_unique_pdf_bytes(raw_bytes, out_filepath):
-              if not out_filepath or len(raw_bytes) < 1500 or raw[:4] if False else raw_bytes[:4] != b"%PDF":
+              if not out_filepath or len(raw_bytes) < 1500 or raw_bytes[:4] != b"%PDF":
                   return False
               md5_hex = hashlib.md5(raw_bytes).hexdigest()
               base_name = os.path.basename(out_filepath).lower()
 
-              arch_m = re.match(r'^(bac_\d{4}_[a-z0-9]+_[a-z0-9]+|bem_\d{4}_[a-z0-9]+)', base_name)
+              arch_m = re.match(r'^(bac_\d{4}_[a-z0-9]+_[a-z0-9]+|bem_\d{4}_[a-z0-9]+|5eme_\d{4}_[a-z0-9]+)', base_name)
               arch_key = arch_m.group(1) if arch_m else None
 
               with lock:
@@ -256,6 +289,11 @@ jobs:
               return True
 
           level_rules = [
+              ("1ap", ["first-primary", "1ere-primaire", "الأولى ابتدائي", "اولى ابتدائي", "1 ابتدائي", "سنة أولى ابتدائي", "/1ap/"]),
+              ("2ap", ["second-primary", "2eme-primaire", "الثانية ابتدائي", "ثانية ابتدائي", "2 ابتدائي", "سنة ثانية ابتدائي", "/2ap/"]),
+              ("3ap", ["third-primary", "3eme-primaire", "الثالثة ابتدائي", "ثالثة ابتدائي", "3 ابتدائي", "سنة ثالثة ابتدائي", "/3ap/"]),
+              ("4ap", ["fourth-primary", "4eme-primaire", "الرابعة ابتدائي", "رابعة ابتدائي", "4 ابتدائي", "سنة رابعة ابتدائي", "/4ap/"]),
+              ("5ap", ["fifth-primary", "5eme-primaire", "الخامسة ابتدائي", "خامسة ابتدائي", "5 ابتدائي", "سنة خامسة ابتدائي", "/5ap/"]),
               ("1am", ["first-middle", "first-medium", "first-am", "1ere-moyen", "الأولى متوسط", "اولى متوسط", "1 متوسط", "سنة أولى متوسط", "/1am/"]),
               ("2am", ["second-middle", "second-medium", "second-am", "2eme-moyen", "الثانية متوسط", "ثانية متوسط", "2 متوسط", "سنة ثانية متوسط", "/2am/"]),
               ("3am", ["third-middle", "third-medium", "third-am", "3eme-moyen", "الثالثة متوسط", "ثالثة متوسط", "3 متوسط", "سنة ثالثة متوسط", "/3am/"]),
@@ -265,11 +303,10 @@ jobs:
               ("3as", ["third-secondary", "third-as", "3eme-secondaire", "الثالثة ثانوي", "ثالثة ثانوي", "3 ثانوي", "سنة ثالثة ثانوي", "/3as/"]),
           ]
 
-          # Note: Do NOT put bare '/sciences/' here because '/bac-2026/sciences/english/' uses '/sciences/' for Experimental Sciences stream!
           subject_url_slugs = [
               ("math", ["/maths/", "/math/", "/mathematiques"]),
               ("physics", ["/physics/", "/physique", "/phys/"]),
-              ("science", ["natural-sciences", "sciences-naturelles", "1am/sciences", "2am/sciences", "3am/sciences", "4am/sciences", "1as/sciences", "2as/sciences", "3as/sciences"]),
+              ("science", ["natural-sciences", "sciences-naturelles", "primary/sciences", "1am/sciences", "2am/sciences", "3am/sciences", "4am/sciences", "1as/sciences", "2as/sciences", "3as/sciences"]),
               ("arabic", ["/arabic/", "/arabe"]),
               ("french", ["/francais", "/french/"]),
               ("english", ["/english/", "/anglais"]),
@@ -290,7 +327,7 @@ jobs:
           subject_text_rules = [
               ("math", ["الرياضيات", "رياضيات"]),
               ("physics", ["العلوم الفيزيائية", "الفيزياء", "فيزياء"]),
-              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية"]),
+              ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية", "التربية العلمية"]),
               ("arabic", ["اللغة العربية", "الأدب العربي"]),
               ("french", ["اللغة الفرنسية", "فرنسية"]),
               ("english", ["اللغة الإنجليزية", "اللغة الانجليزية", "إنجليزية", "انجليزية"]),
@@ -368,9 +405,6 @@ jobs:
               for slogan in ["دروس وفروض واختبارات", "موقع الدراسة الجزائري"]:
                   t = t.replace(slogan, " ")
 
-              if any(w in t for w in ["ابتدائي", "إبتدائي", "-primary", "primaire", "1ap", "2ap", "3ap", "4ap", "5ap", "5eme", "cinquieme"]):
-                  return {"skip": True}
-
               is_solution = any(
                   w in t
                   for w in ["التصحيح فقط", "تصحيح موضوع", "_sol.", "-sol.", "corrige-"]
@@ -392,6 +426,8 @@ jobs:
                       archive_type = "bac"
                   elif any(w in t for w in ["شهادة التعليم المتوسط", "البيام", "/bem-", "/bem/", "bem-solutions"]):
                       archive_type = "bem"
+                  elif any(w in t for w in ["شهادة التعليم الابتدائي", "السانكيام", "/5eme-", "/5eme/", "cinquieme"]):
+                      archive_type = "5eme"
 
               ym = re.search(r'(200[89]|201[0-9]|202[0-6])', t)
               year = ym.group(1) if (ym and archive_type) else (parent_meta.get("year") if (parent_meta and archive_type) else None)
@@ -409,6 +445,8 @@ jobs:
                       level = "3as"
                   elif archive_type == "bem":
                       level = "4am"
+                  elif archive_type == "5eme":
+                      level = "5ap"
                   else:
                       level = "3as"
 
@@ -526,7 +564,6 @@ jobs:
                   subject_pdfs = []
                   correction_pdfs = []
 
-                  # 1. Inspect explicit buttons/links first (such as 'عرض الموضوع' and 'عرض التصحيح')
                   for tag in soup.find_all(["a", "button", "iframe", "embed", "object"]):
                       tag_text = tag.get_text(" ", strip=True)
                       for attr in ["href", "src", "data", "data-pdf", "data-file", "data-url", "data-src", "data-href"]:
@@ -541,7 +578,6 @@ jobs:
                               if pdf_u not in subject_pdfs:
                                   subject_pdfs.append(pdf_u)
 
-                  # 2. Also scan raw HTML for direct PDF URLs
                   clean_html = r.text.replace(r"\/", "/")
                   abs_pdfs = re.findall(r'https?://[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
                   rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/)[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
@@ -572,7 +608,6 @@ jobs:
                           if register_unique_pdf_bytes(final_pdf_bytes, out_filepath):
                               return True
 
-                  # 3. Fallback: convert exam page images to PDF if no direct PDF file was embedded
                   if not is_bac_or_bem:
                       content_box = (
                           soup.find("div", class_=re.compile(r"entry-content|post-content|article|main|sujet"))
@@ -619,7 +654,6 @@ jobs:
               if not ignore_visited and is_visited(url):
                   return False
 
-              # Skip standalone 'الحل' or 'التصحيح' buttons on list pages
               clean_hint = title_hint.strip()
               if clean_hint in ["الحل", "التصحيح", "عرض التصحيح", "تحميل التصحيح"]:
                   mark_visited(url)
@@ -627,9 +661,6 @@ jobs:
 
               combined = title_hint + " " + urllib.parse.unquote(url)
               meta = analyze_metadata(combined, parent_meta=parent_meta)
-              if meta.get("skip"):
-                  mark_visited(url)
-                  return False
 
               if not meta.get("subject") or (meta.get("level") in ["1as", "2as", "3as"] and not meta.get("stream")):
                   try:
@@ -668,7 +699,6 @@ jobs:
 
           def is_hub_category_url(u, txt):
               low_u = urllib.parse.unquote(u).lower().rstrip("/")
-              # Hub URLs end with category/stream/subject slugs rather than individual numbered posts
               if any(low_u.endswith(s) for s in [
                   "/maths", "/physics", "/sciences", "/arabic", "/francais", "/french", "/english",
                   "/islamic", "/history", "/history-geography", "/civic", "/philosophy", "/accounting",
@@ -699,8 +729,6 @@ jobs:
 
                   parent_context = urllib.parse.unquote(hub_url) + " " + page_title + " " + h1_txt
                   parent_meta = analyze_metadata(parent_context)
-                  if parent_meta.get("skip"):
-                      return
 
                   for nav_tag in soup.find_all(["nav", "header", "footer", "aside"]):
                       nav_tag.decompose()
@@ -719,7 +747,6 @@ jobs:
                       ):
                           continue
 
-                      # Include parent card text when link text is just 'الموضوع والتصحيح' or 'الموضوع'
                       context_txt = txt
                       if txt in ["الموضوع", "الموضوع والتصحيح", "عرض الموضوع"] and a.parent:
                           card_box = a.find_parent(["li", "div", "tr", "article"]) or a.parent
@@ -773,14 +800,12 @@ jobs:
               except Exception as e:
                   print("Error crawling hub:", hub_url, e)
 
-          # 1. Process explicit extra_url first (forces re-check even if visited)
           extra_u = os.environ.get("EXTRA_URL", "").strip()
           if extra_u:
               for part in re.split(r'[\s,]+', extra_u):
                   if part.startswith("http") and not is_time_up() and saved_total < max_to_save:
                       crawl_hub_url(part.strip(), depth=0, force_revisit=True)
 
-          # 2. Process links.txt (skips already-visited exam articles so it progresses through the whole file)
           if os.path.exists("links.txt") and not is_time_up() and saved_total < max_to_save:
               with open("links.txt", "r", encoding="utf-8") as lf:
                   file_urls = [line.strip() for line in lf if line.strip().startswith("http")]
@@ -789,7 +814,6 @@ jobs:
                       break
                   crawl_hub_url(u, depth=0, force_revisit=False)
 
-          # 3. Background 5-site WordPress REST API harvest if time & quota remain
           for domain in ["https://eddirasa.com", "https://bacdz.net", "https://educationdz.com", "https://dzmadrassa.com"]:
               if saved_total >= max_to_save or is_time_up():
                   break
