@@ -16,20 +16,68 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore 1AP to 5AP Folders Before Deletion
+      - name: Restore All Elementary PDFs From Entire History
+        shell: python
         run: |
-          git config user.name "StudyDZ-Restore"
-          git config user.email "bot@studydz.app"
+          import os
+          import subprocess
 
-          for c in $(git rev-list --all -n 100 | tac); do
-            for folder in 1ap 2ap 3ap 4ap 5ap 5eme; do
-              if git ls-tree -d "$c" "files/$folder" | grep -q "tree"; then
-                git checkout "$c" -- "files/$folder" 2>/dev/null || true
-              fi
-            done
-          done
+          subprocess.run(["git", "config", "user.name", "StudyDZ-Restore"], check=False)
+          subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
 
-          find files -type f -name "*.pdf" | sort > files/index.txt
-          git add -A files/
-          git commit -m "Restored all Elementary School PDFs" || true
-          git push origin HEAD
+          # Scan EVERY commit in history where files were deleted (no commit limit)
+          log_out = subprocess.check_output(
+              ["git", "log", "--all", "--diff-filter=D", "--name-only", "--pretty=format:__COMMIT__%H"],
+              text=True
+          )
+
+          curr_commit = None
+          restored = 0
+          seen = set()
+
+          for line in log_out.splitlines():
+              line = line.strip()
+              if not line:
+                  continue
+              if line.startswith("__COMMIT__"):
+                  curr_commit = line.replace("__COMMIT__", "").strip()
+                  continue
+
+              low = line.lower()
+              fname = os.path.basename(low)
+              is_elem = (
+                  fname.startswith(("1ap", "2ap", "3ap", "4ap", "5ap", "5eme"))
+                  or any(k in low for k in ["/1ap/", "/2ap/", "/3ap/", "/4ap/", "/5ap/", "/5eme/", "primary", "ابتدائي"])
+              )
+
+              if curr_commit and low.endswith(".pdf") and is_elem and line not in seen:
+                  seen.add(line)
+                  if not os.path.exists(line):
+                      try:
+                          raw = subprocess.check_output(
+                              ["git", "show", f"{curr_commit}~1:{line}"],
+                              stderr=subprocess.DEVNULL
+                          )
+                          if len(raw) > 1000 and raw[:4] == b"%PDF":
+                              os.makedirs(os.path.dirname(line) or "files", exist_ok=True)
+                              with open(line, "wb") as f:
+                                  f.write(raw)
+                              restored += 1
+                      except Exception:
+                          pass
+
+          print(f"Restored {restored} Elementary PDFs!")
+
+          # Rebuild files/index.txt with all PDFs
+          all_pdfs = []
+          for r_dir, _, f_list in os.walk("files"):
+              for fn in sorted(f_list):
+                  if fn.lower().endswith(".pdf"):
+                      all_pdfs.append(os.path.join(r_dir, fn).replace("\\", "/"))
+
+          with open("files/index.txt", "w", encoding="utf-8") as idx:
+              idx.write("\n".join(all_pdfs))
+
+          subprocess.run(["git", "add", "-A", "files/"], check=False)
+          subprocess.run(["git", "commit", "-m", f"Restored {restored} Elementary PDFs from history"], check=False)
+          subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
