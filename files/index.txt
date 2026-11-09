@@ -4214,6 +4214,14 @@ files/5ap/5ap_english_t3_exam_1.pdf
 files/5ap/5ap_english_t3_exam_2.pdf
 files/5ap/5ap_french_book_39277.pdf
 files/5ap/5ap_french_book_54ef9.pdf
+files/5ap/5ap_french_t1_exam_01.pdf
+files/5ap/5ap_french_t1_exam_02.pdf
+files/5ap/5ap_french_t1_exam_03.pdf
+files/5ap/5ap_french_t1_exam_04.pdf
+files/5ap/5ap_french_t1_exam_05.pdf
+files/5ap/5ap_french_t1_exam_06.pdf
+files/5ap/5ap_french_t1_exam_07.pdf
+files/5ap/5ap_french_t1_exam_08.pdf
 files/5ap/5ap_french_t1_exam_100.pdf
 files/5ap/5ap_french_t1_exam_101.pdf
 files/5ap/5ap_french_t1_exam_103.pdf
@@ -4223,6 +4231,7 @@ files/5ap/5ap_french_t1_exam_106.pdf
 files/5ap/5ap_french_t1_exam_107.pdf
 files/5ap/5ap_french_t1_exam_108.pdf
 files/5ap/5ap_french_t1_exam_109.pdf
+files/5ap/5ap_french_t1_exam_11.pdf
 files/5ap/5ap_french_t1_exam_110.pdf
 files/5ap/5ap_french_t1_exam_111.pdf
 files/5ap/5ap_french_t1_exam_112.pdf
@@ -4233,6 +4242,7 @@ files/5ap/5ap_french_t1_exam_116.pdf
 files/5ap/5ap_french_t1_exam_117.pdf
 files/5ap/5ap_french_t1_exam_118.pdf
 files/5ap/5ap_french_t1_exam_119.pdf
+files/5ap/5ap_french_t1_exam_12.pdf
 files/5ap/5ap_french_t1_exam_120.pdf
 files/5ap/5ap_french_t1_exam_121.pdf
 files/5ap/5ap_french_t1_exam_124.pdf
@@ -4241,6 +4251,7 @@ files/5ap/5ap_french_t1_exam_126.pdf
 files/5ap/5ap_french_t1_exam_127.pdf
 files/5ap/5ap_french_t1_exam_128.pdf
 files/5ap/5ap_french_t1_exam_129.pdf
+files/5ap/5ap_french_t1_exam_13.pdf
 files/5ap/5ap_french_t1_exam_131.pdf
 files/5ap/5ap_french_t1_exam_132.pdf
 files/5ap/5ap_french_t1_exam_133.pdf
@@ -4260,6 +4271,7 @@ files/5ap/5ap_french_t1_exam_146.pdf
 files/5ap/5ap_french_t1_exam_147.pdf
 files/5ap/5ap_french_t1_exam_148.pdf
 files/5ap/5ap_french_t1_exam_149.pdf
+files/5ap/5ap_french_t1_exam_15.pdf
 files/5ap/5ap_french_t1_exam_150.pdf
 files/5ap/5ap_french_t1_exam_151.pdf
 files/5ap/5ap_french_t1_exam_152.pdf
@@ -4269,6 +4281,7 @@ files/5ap/5ap_french_t1_exam_155.pdf
 files/5ap/5ap_french_t1_exam_156.pdf
 files/5ap/5ap_french_t1_exam_157.pdf
 files/5ap/5ap_french_t1_exam_159.pdf
+files/5ap/5ap_french_t1_exam_16.pdf
 files/5ap/5ap_french_t1_exam_160.pdf
 files/5ap/5ap_french_t1_exam_161.pdf
 files/5ap/5ap_french_t1_exam_162.pdf
@@ -4276,6 +4289,17 @@ files/5ap/5ap_french_t1_exam_163.pdf
 files/5ap/5ap_french_t1_exam_164.pdf
 files/5ap/5ap_french_t1_exam_165.pdf
 files/5ap/5ap_french_t1_exam_166.pdf
+files/5ap/5ap_french_t1_exam_17.pdf
+files/5ap/5ap_french_t1_exam_18.pdf
+files/5ap/5ap_french_t1_exam_19.pdf
+files/5ap/5ap_french_t1_exam_20.pdf
+files/5ap/5ap_french_t1_exam_21.pdf
+files/5ap/5ap_french_t1_exam_22.pdf
+files/5ap/5ap_french_t1_exam_23.pdf
+files/5ap/5ap_french_t1_exam_24.pdf
+files/5ap/5ap_french_t1_exam_25.pdf
+files/5ap/5ap_french_t1_exam_26.pdf
+files/5ap/5ap_french_t1_exam_27.pdf
 files/5ap/5ap_french_t1_exam_28.pdf
 files/5ap/5ap_french_t1_exam_29.pdf
 files/5ap/5ap_french_t1_exam_30.pdf
@@ -4339,6 +4363,7 @@ files/5ap/5ap_french_t1_exam_93.pdf
 files/5ap/5ap_french_t1_exam_94.pdf
 files/5ap/5ap_french_t1_exam_97.pdf
 files/5ap/5ap_french_t1_exam_98.pdf
+files/5ap/5ap_french_t2_exam_99.pdf
 files/5ap/5ap_hisgeo_t1_exam_01.pdf
 files/5ap/5ap_hisgeo_t1_exam_02.pdf
 files/5ap/5ap_hisgeo_t1_exam_03.pdf
