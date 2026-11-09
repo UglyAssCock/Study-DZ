@@ -6,6 +6,7 @@ on:
   push:
     paths:
       - 'links.txt'
+      - '.github/workflows/auto_import.yml'
   workflow_dispatch:
     inputs:
       extra_url:
@@ -25,6 +26,10 @@ on:
         required: true
         default: '400'
 
+concurrency:
+  group: study-dz-harvester
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -41,7 +46,7 @@ jobs:
       - name: Install Scraper and PDF Merger Libraries
         run: pip install requests beautifulsoup4 pillow lxml pypdf
 
-      - name: Restore Elementary Files Immediately and Harvest
+      - name: Restore Elementary Files from Git Snapshots and Harvest
         env:
           EVENT_NAME: ${{ github.event_name }}
           SITE_CHOICE: ${{ github.event.inputs.site_choice }}
@@ -76,7 +81,6 @@ jobs:
 
           subprocess.run(["git", "config", "user.name", "StudyDZ-Harvester"], check=False)
           subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
-          subprocess.run(["git", "pull", "--rebase"], check=False)
 
           lock = threading.Lock()
           saved_total = 0
@@ -98,49 +102,52 @@ jobs:
                       subprocess.run(["git", "push"], check=False)
 
           # =====================================================================
-          # STEP 0: INSTANTLY EXTRACT ALL DELETED ELEMENTARY PDFS FROM GIT OBJECTS
+          # STEP 0: SCAN ALL LAST 80 GIT COMMITS & RESTORE EVERY ELEMENTARY PDF
           # =====================================================================
           restored_count = 0
           try:
-              log_out = subprocess.check_output(
-                  ["git", "log", "--all", "--full-history", "--diff-filter=D", "--name-only", "--pretty=format:__COMMIT__%H"],
+              commits = subprocess.check_output(
+                  ["git", "rev-list", "--all", "-n", "80"],
                   text=True
-              )
-              curr_commit = None
-              restored_paths = set()
+              ).splitlines()
 
-              for raw_line in log_out.splitlines():
-                  line = raw_line.strip()
-                  if not line:
+              for c in commits:
+                  c = c.strip()
+                  if not c:
                       continue
-                  if line.startswith("__COMMIT__"):
-                      curr_commit = line.replace("__COMMIT__", "").strip()
+                  try:
+                      tree_files = subprocess.check_output(
+                          ["git", "ls-tree", "-r", "--name-only", c, "files/"],
+                          text=True,
+                          stderr=subprocess.DEVNULL
+                      ).splitlines()
+                  except Exception:
                       continue
-                  if curr_commit and line.lower().endswith(".pdf") and line not in restored_paths:
-                      fn_low = os.path.basename(line).lower()
+
+                  missing_in_commit = []
+                  for tf in tree_files:
+                      tf = tf.strip()
+                      if not tf.lower().endswith(".pdf"):
+                          continue
+                      fn_low = os.path.basename(tf).lower()
                       is_elem = fn_low.startswith(("1ap_", "2ap_", "3ap_", "4ap_", "5ap_", "5eme_")) or any(
-                          f"/{fld}/" in line.lower() for fld in ["1ap", "2ap", "3ap", "4ap", "5ap", "5eme"]
+                          f"files/{fld}/" in tf.lower() for fld in ["1ap", "2ap", "3ap", "4ap", "5ap", "5eme"]
                       )
-                      if is_elem and not os.path.exists(line):
-                          try:
-                              pdf_bytes = subprocess.check_output(
-                                  ["git", "show", f"{curr_commit}~1:{line}"],
-                                  stderr=subprocess.DEVNULL
-                              )
-                              if len(pdf_bytes) >= 1500 and pdf_bytes[:4] == b"%PDF":
-                                  os.makedirs(os.path.dirname(line), exist_ok=True)
-                                  with open(line, "wb") as out_f:
-                                      out_f.write(pdf_bytes)
-                                  restored_paths.add(line)
-                                  restored_count += 1
-                          except Exception:
-                              pass
-          except Exception as e:
-              print("Git history scan notice:", e)
+                      if is_elem and not os.path.exists(tf):
+                          missing_in_commit.append(tf)
 
-          print(f"Restored {restored_count} Elementary School PDFs from Git history.")
+                  for i in range(0, len(missing_in_commit), 80):
+                      batch = [p for p in missing_in_commit[i:i+80] if not os.path.exists(p)]
+                      if batch:
+                          r_chk = subprocess.run(["git", "checkout", c, "--"] + batch, check=False)
+                          if r_chk.returncode == 0:
+                              restored_count += len(batch)
+          except Exception as e:
+              print("Git snapshot recovery notice:", e)
+
+          print(f"Total Elementary PDFs restored from Git snapshots: {restored_count}")
           if restored_count > 0:
-              write_index_and_push(f"Restored {restored_count} Elementary School PDFs from history")
+              write_index_and_push(f"Restored {restored_count} Elementary School PDFs")
 
           # =====================================================================
           # STEP 1: INDEX EXISTING FILES (NEVER DELETE ELEMENTARY FILES)
@@ -150,16 +157,19 @@ jobs:
           seen_canonical_names = set()
           seen_archive_keys = set()
 
-          # Count how many elementary files currently exist on disk
-          elem_on_disk = 0
+          if os.path.exists(visited_file):
+              with open(visited_file, "r", encoding="utf-8") as vf:
+                  for line in vf:
+                      h = line.strip()
+                      if h:
+                          visited_hashes.add(h)
+
           for root, _, fnames in os.walk("files"):
               for fn in sorted(fnames):
                   if not fn.lower().endswith(".pdf"):
                       continue
                   p = os.path.join(root, fn)
                   lower_fn = fn.lower()
-                  if lower_fn.startswith(("1ap_", "2ap_", "3ap_", "4ap_", "5ap_", "5eme_")):
-                      elem_on_disk += 1
                   try:
                       with open(p, "rb") as pf:
                           raw = pf.read()
@@ -173,26 +183,14 @@ jobs:
                   except Exception:
                       pass
 
-          # Only load visited_hashes if we already have plenty of Elementary files on disk
-          if elem_on_disk >= 100 and os.path.exists(visited_file):
-              with open(visited_file, "r", encoding="utf-8") as vf:
-                  for line in vf:
-                      h = line.strip()
-                      if h:
-                          visited_hashes.add(h)
-          else:
-              print(f"Elementary files on disk ({elem_on_disk}) is low; resetting visited cache so Elementary URLs are re-harvested immediately.")
-              with open(visited_file, "w", encoding="utf-8") as vf:
-                  vf.write("")
-
           with open(content_hashes_file, "w", encoding="utf-8") as cf:
               for h in sorted(content_hashes):
                   cf.write(h + "\n")
 
-          write_index_and_push(f"Updated index.txt ({len(content_hashes)} PDFs available)")
+          write_index_and_push(f"Synced index.txt ({len(content_hashes)} total PDFs)")
 
           # =====================================================================
-          # STEP 2: HARVESTER (ELEMENTARY + MIDDLE + HIGH SCHOOL)
+          # STEP 2: HARVESTER
           # =====================================================================
           headers = {
               "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
@@ -778,35 +776,10 @@ jobs:
               except Exception as e:
                   print("Error crawling hub:", hub_url, e)
 
-          # Priority Elementary URLs if elementary files on disk were fewer than 100
-          elementary_seed_urls = [
-              "https://eddirasa.com/ens-pri/fifth-primary/maths/exams-term-1/",
-              "https://eddirasa.com/ens-pri/fifth-primary/maths/exams-term-2/",
-              "https://eddirasa.com/ens-pri/fifth-primary/maths/exams-term-3/",
-              "https://eddirasa.com/ens-pri/fifth-primary/arabic/exams-term-1/",
-              "https://eddirasa.com/ens-pri/fifth-primary/arabic/exams-term-2/",
-              "https://eddirasa.com/ens-pri/fifth-primary/arabic/exams-term-3/",
-              "https://eddirasa.com/ens-pri/fifth-primary/french/exams-term-1/",
-              "https://eddirasa.com/ens-pri/fifth-primary/french/exams-term-2/",
-              "https://eddirasa.com/ens-pri/fifth-primary/french/exams-term-3/",
-              "https://eddirasa.com/ens-pri/fourth-primary/maths/exams-term-1/",
-              "https://eddirasa.com/ens-pri/fourth-primary/arabic/exams-term-1/",
-              "https://eddirasa.com/ens-pri/fourth-primary/french/exams-term-1/",
-              "https://eddirasa.com/ens-pri/third-primary/maths/exams-term-1/",
-              "https://eddirasa.com/ens-pri/third-primary/arabic/exams-term-1/",
-              "https://eddirasa.com/ens-pri/second-primary/maths/exams-term-1/",
-              "https://eddirasa.com/ens-pri/second-primary/arabic/exams-term-1/",
-              "https://eddirasa.com/ens-pri/first-primary/maths/exams-term-1/",
-              "https://eddirasa.com/ens-pri/first-primary/arabic/exams-term-1/",
-          ]
-
-          target_f = (os.environ.get("TARGET_FILTER", "ALL").strip() or "ALL").lower()
-          if elem_on_disk + restored_count < 100 or target_f == "elementary_only":
-              for eu in elementary_seed_urls:
-                  if saved_total >= max_to_save or is_time_up():
-                      break
-                  crawl_hub_url(eu, depth=0, force_revisit=True)
-              write_index_and_push(f"Restored/Harvested Elementary PDFs (+{saved_total})")
+          # If Elementary files were just restored on this run, exit cleanly right away so the push is immediate!
+          if restored_count > 0:
+              print("Elementary files restored and pushed! Exiting immediately so changes are live.")
+              raise SystemExit(0)
 
           extra_u = os.environ.get("EXTRA_URL", "").strip()
           if extra_u:
@@ -814,7 +787,7 @@ jobs:
                   if part.startswith("http") and not is_time_up() and saved_total < max_to_save:
                       crawl_hub_url(part.strip(), depth=0, force_revisit=True)
 
-          if target_f != "elementary_only" and os.path.exists("links.txt") and not is_time_up() and saved_total < max_to_save:
+          if os.path.exists("links.txt") and not is_time_up() and saved_total < max_to_save:
               with open("links.txt", "r", encoding="utf-8") as lf:
                   file_urls = [line.strip() for line in lf if line.strip().startswith("http")]
               for u in file_urls:
