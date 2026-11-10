@@ -23,6 +23,7 @@ files/5eme/5eme_2021_french_merged.pdf
 files/5eme/5eme_2021_math_merged.pdf
 files/1ap/1ap_arabic_book_333ba.pdf
 files/1ap/1ap_arabic_book_45e2c.pdf
+files/1ap/1ap_arabic_book_8d818.pdf
 files/1ap/1ap_arabic_book_e252a.pdf
 files/1ap/1ap_arabic_t1_exam_01.pdf
 files/1ap/1ap_arabic_t1_exam_02.pdf
@@ -68,6 +69,12 @@ files/1ap/1ap_arabic_t1_exam_41.pdf
 files/1ap/1ap_arabic_t1_exam_42.pdf
 files/1ap/1ap_arabic_t1_exam_43.pdf
 files/1ap/1ap_arabic_t1_exam_43_5089.pdf
+files/1ap/1ap_arabic_t1_lesson_735fc.pdf
+files/1ap/1ap_arabic_t1_lesson_d1340.pdf
+files/1ap/1ap_arabic_t1_resume_15a3e.pdf
+files/1ap/1ap_arabic_t1_resume_1a115.pdf
+files/1ap/1ap_arabic_t1_resume_42fe0.pdf
+files/1ap/1ap_arabic_t1_resume_7e27f.pdf
 files/1ap/1ap_arabic_t2_exam_01.pdf
 files/1ap/1ap_arabic_t2_exam_02.pdf
 files/1ap/1ap_arabic_t2_exam_03.pdf
