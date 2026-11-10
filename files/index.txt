@@ -4987,6 +4987,7 @@ files/5ap/5ap_french_t1_exam_09.pdf
 files/5ap/5ap_french_t1_exam_10.pdf
 files/5ap/5ap_french_t1_exam_100.pdf
 files/5ap/5ap_french_t1_exam_101.pdf
+files/5ap/5ap_french_t1_exam_102.pdf
 files/5ap/5ap_french_t1_exam_103.pdf
 files/5ap/5ap_french_t1_exam_104.pdf
 files/5ap/5ap_french_t1_exam_105.pdf
@@ -5047,6 +5048,7 @@ files/5ap/5ap_french_t1_exam_154.pdf
 files/5ap/5ap_french_t1_exam_155.pdf
 files/5ap/5ap_french_t1_exam_156.pdf
 files/5ap/5ap_french_t1_exam_157.pdf
+files/5ap/5ap_french_t1_exam_158.pdf
 files/5ap/5ap_french_t1_exam_159.pdf
 files/5ap/5ap_french_t1_exam_16.pdf
 files/5ap/5ap_french_t1_exam_160.pdf
@@ -5112,6 +5114,7 @@ files/5ap/5ap_french_t1_exam_68.pdf
 files/5ap/5ap_french_t1_exam_69.pdf
 files/5ap/5ap_french_t1_exam_70.pdf
 files/5ap/5ap_french_t1_exam_71.pdf
+files/5ap/5ap_french_t1_exam_72.pdf
 files/5ap/5ap_french_t1_exam_73.pdf
 files/5ap/5ap_french_t1_exam_74.pdf
 files/5ap/5ap_french_t1_exam_75.pdf
@@ -5134,15 +5137,19 @@ files/5ap/5ap_french_t1_exam_91.pdf
 files/5ap/5ap_french_t1_exam_92.pdf
 files/5ap/5ap_french_t1_exam_93.pdf
 files/5ap/5ap_french_t1_exam_94.pdf
+files/5ap/5ap_french_t1_exam_95.pdf
+files/5ap/5ap_french_t1_exam_96.pdf
 files/5ap/5ap_french_t1_exam_97.pdf
 files/5ap/5ap_french_t1_exam_98.pdf
 files/5ap/5ap_french_t1_exam_99.pdf
 files/5ap/5ap_french_t1_exam_d72a5.pdf
+files/5ap/5ap_french_t1_lesson_1b3b7.pdf
 files/5ap/5ap_french_t1_lesson_21ea4.pdf
 files/5ap/5ap_french_t1_lesson_2dbaa.pdf
 files/5ap/5ap_french_t1_lesson_6076b.pdf
 files/5ap/5ap_french_t1_lesson_79535.pdf
 files/5ap/5ap_french_t1_lesson_7dc82.pdf
+files/5ap/5ap_french_t1_lesson_8ffe8.pdf
 files/5ap/5ap_french_t1_resume_1c07a.pdf
 files/5ap/5ap_french_t1_resume_1d148.pdf
 files/5ap/5ap_french_t1_resume_2a0b7.pdf
@@ -5185,6 +5192,7 @@ files/5ap/5ap_french_t2_exam_22.pdf
 files/5ap/5ap_french_t2_exam_23.pdf
 files/5ap/5ap_french_t2_exam_24.pdf
 files/5ap/5ap_french_t2_exam_25.pdf
+files/5ap/5ap_french_t2_exam_26.pdf
 files/5ap/5ap_french_t2_exam_27.pdf
 files/5ap/5ap_french_t2_exam_28.pdf
 files/5ap/5ap_french_t2_exam_29.pdf
@@ -5240,6 +5248,7 @@ files/5ap/5ap_french_t2_exam_78.pdf
 files/5ap/5ap_french_t2_exam_79.pdf
 files/5ap/5ap_french_t2_exam_80.pdf
 files/5ap/5ap_french_t2_exam_81.pdf
+files/5ap/5ap_french_t2_exam_82.pdf
 files/5ap/5ap_french_t2_exam_83.pdf
 files/5ap/5ap_french_t2_exam_84.pdf
 files/5ap/5ap_french_t2_exam_85.pdf
@@ -5248,10 +5257,12 @@ files/5ap/5ap_french_t2_exam_87.pdf
 files/5ap/5ap_french_t2_exam_88.pdf
 files/5ap/5ap_french_t2_exam_89.pdf
 files/5ap/5ap_french_t2_exam_90.pdf
+files/5ap/5ap_french_t2_exam_91.pdf
 files/5ap/5ap_french_t2_exam_92.pdf
 files/5ap/5ap_french_t2_exam_93.pdf
 files/5ap/5ap_french_t2_exam_94.pdf
 files/5ap/5ap_french_t2_exam_95.pdf
+files/5ap/5ap_french_t2_exam_96.pdf
 files/5ap/5ap_french_t2_exam_97.pdf
 files/5ap/5ap_french_t2_exam_98.pdf
 files/5ap/5ap_french_t2_exam_99.pdf
@@ -5291,8 +5302,10 @@ files/5ap/5ap_french_t3_exam_33.pdf
 files/5ap/5ap_french_t3_exam_34.pdf
 files/5ap/5ap_french_t3_exam_35.pdf
 files/5ap/5ap_french_t3_exam_36.pdf
+files/5ap/5ap_french_t3_exam_37.pdf
 files/5ap/5ap_french_t3_exam_38.pdf
 files/5ap/5ap_french_t3_exam_39.pdf
+files/5ap/5ap_french_t3_exam_40.pdf
 files/5ap/5ap_french_t3_exam_41.pdf
 files/5ap/5ap_french_t3_exam_42.pdf
 files/5ap/5ap_french_t3_exam_43.pdf
@@ -5320,6 +5333,7 @@ files/5ap/5ap_french_t3_exam_65.pdf
 files/5ap/5ap_french_t3_exam_66.pdf
 files/5ap/5ap_french_t3_exam_67.pdf
 files/5ap/5ap_french_t3_exam_68.pdf
+files/5ap/5ap_french_t3_exam_69.pdf
 files/5ap/5ap_french_t3_exam_70.pdf
 files/5ap/5ap_french_t3_exam_71.pdf
 files/5ap/5ap_french_t3_exam_72.pdf
@@ -20603,10 +20617,12 @@ files/4ap/4ap_french_t1_exam_53.pdf
 files/4ap/4ap_french_t1_exam_54.pdf
 files/4ap/4ap_french_t1_exam_55.pdf
 files/4ap/4ap_french_t1_exam_56.pdf
+files/4ap/4ap_french_t1_exam_57.pdf
 files/4ap/4ap_french_t1_exam_58.pdf
 files/4ap/4ap_french_t1_exam_59.pdf
 files/4ap/4ap_french_t1_exam_60.pdf
 files/4ap/4ap_french_t1_exam_61.pdf
+files/4ap/4ap_french_t1_exam_62.pdf
 files/4ap/4ap_french_t1_exam_63.pdf
 files/4ap/4ap_french_t1_exam_64.pdf
 files/4ap/4ap_french_t1_exam_65.pdf
@@ -20629,7 +20645,9 @@ files/4ap/4ap_french_t1_exam_81.pdf
 files/4ap/4ap_french_t1_exam_82.pdf
 files/4ap/4ap_french_t1_exam_83.pdf
 files/4ap/4ap_french_t1_exam_84.pdf
+files/4ap/4ap_french_t1_exam_85.pdf
 files/4ap/4ap_french_t1_exam_86.pdf
+files/4ap/4ap_french_t1_exam_87.pdf
 files/4ap/4ap_french_t1_exam_88.pdf
 files/4ap/4ap_french_t1_exam_89.pdf
 files/4ap/4ap_french_t1_exam_90.pdf
@@ -20674,6 +20692,7 @@ files/4ap/4ap_french_t2_exam_22.pdf
 files/4ap/4ap_french_t2_exam_23.pdf
 files/4ap/4ap_french_t2_exam_24.pdf
 files/4ap/4ap_french_t2_exam_25.pdf
+files/4ap/4ap_french_t2_exam_26.pdf
 files/4ap/4ap_french_t2_exam_27.pdf
 files/4ap/4ap_french_t2_exam_28.pdf
 files/4ap/4ap_french_t2_exam_29.pdf
@@ -20747,8 +20766,11 @@ files/4ap/4ap_french_t3_exam_08.pdf
 files/4ap/4ap_french_t3_exam_09.pdf
 files/4ap/4ap_french_t3_exam_10.pdf
 files/4ap/4ap_french_t3_exam_11.pdf
+files/4ap/4ap_french_t3_exam_12.pdf
+files/4ap/4ap_french_t3_exam_13.pdf
 files/4ap/4ap_french_t3_exam_14.pdf
 files/4ap/4ap_french_t3_exam_15.pdf
+files/4ap/4ap_french_t3_exam_16.pdf
 files/4ap/4ap_french_t3_exam_17.pdf
 files/4ap/4ap_french_t3_exam_18.pdf
 files/4ap/4ap_french_t3_exam_19.pdf
@@ -20791,6 +20813,7 @@ files/4ap/4ap_hisgeo_t1_exam_07.pdf
 files/4ap/4ap_hisgeo_t1_exam_08.pdf
 files/4ap/4ap_hisgeo_t1_exam_09.pdf
 files/4ap/4ap_hisgeo_t1_exam_10.pdf
+files/4ap/4ap_hisgeo_t1_exam_11.pdf
 files/4ap/4ap_hisgeo_t1_exam_12.pdf
 files/4ap/4ap_hisgeo_t1_exam_13.pdf
 files/4ap/4ap_hisgeo_t1_exam_14.pdf
@@ -20930,11 +20953,13 @@ files/4ap/4ap_hisgeo_t2_exam_56.pdf
 files/4ap/4ap_hisgeo_t2_exam_57.pdf
 files/4ap/4ap_hisgeo_t2_exam_58.pdf
 files/4ap/4ap_hisgeo_t2_exam_59.pdf
+files/4ap/4ap_hisgeo_t2_exam_60.pdf
 files/4ap/4ap_hisgeo_t2_exam_61.pdf
 files/4ap/4ap_hisgeo_t2_exam_62.pdf
 files/4ap/4ap_hisgeo_t2_exam_63.pdf
 files/4ap/4ap_hisgeo_t2_exam_64.pdf
 files/4ap/4ap_hisgeo_t2_exam_65.pdf
+files/4ap/4ap_hisgeo_t2_exam_66.pdf
 files/4ap/4ap_hisgeo_t2_exam_67.pdf
 files/4ap/4ap_hisgeo_t2_exam_68.pdf
 files/4ap/4ap_hisgeo_t2_exam_69.pdf
