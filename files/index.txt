@@ -9683,6 +9683,7 @@ files/3as/3as_philo_se_t3_exam_7.pdf
 files/3as/3as_philo_se_t3_exam_8.pdf
 files/3as/3as_philo_se_t3_exam_9.pdf
 files/3as/3as_physics_se_book_1c416.pdf
+files/3as/3as_physics_se_t1_exam_1.pdf
 files/3as/3as_physics_se_t1_exam_10.pdf
 files/3as/3as_physics_se_t1_exam_11.pdf
 files/3as/3as_physics_se_t1_exam_12.pdf
@@ -9692,6 +9693,7 @@ files/3as/3as_physics_se_t1_exam_15.pdf
 files/3as/3as_physics_se_t1_exam_16.pdf
 files/3as/3as_physics_se_t1_exam_18.pdf
 files/3as/3as_physics_se_t1_exam_19.pdf
+files/3as/3as_physics_se_t1_exam_2.pdf
 files/3as/3as_physics_se_t1_exam_23.pdf
 files/3as/3as_physics_se_t1_exam_24.pdf
 files/3as/3as_physics_se_t1_exam_25.pdf
@@ -9699,6 +9701,7 @@ files/3as/3as_physics_se_t1_exam_26.pdf
 files/3as/3as_physics_se_t1_exam_27.pdf
 files/3as/3as_physics_se_t1_exam_28.pdf
 files/3as/3as_physics_se_t1_exam_29.pdf
+files/3as/3as_physics_se_t1_exam_3.pdf
 files/3as/3as_physics_se_t1_exam_30.pdf
 files/3as/3as_physics_se_t1_exam_31.pdf
 files/3as/3as_physics_se_t1_exam_32.pdf
@@ -9709,6 +9712,7 @@ files/3as/3as_physics_se_t1_exam_36.pdf
 files/3as/3as_physics_se_t1_exam_37.pdf
 files/3as/3as_physics_se_t1_exam_38.pdf
 files/3as/3as_physics_se_t1_exam_39.pdf
+files/3as/3as_physics_se_t1_exam_4.pdf
 files/3as/3as_physics_se_t1_exam_40.pdf
 files/3as/3as_physics_se_t1_exam_41.pdf
 files/3as/3as_physics_se_t1_exam_42.pdf
@@ -9716,6 +9720,7 @@ files/3as/3as_physics_se_t1_exam_43.pdf
 files/3as/3as_physics_se_t1_exam_44.pdf
 files/3as/3as_physics_se_t1_exam_45.pdf
 files/3as/3as_physics_se_t1_exam_46.pdf
+files/3as/3as_physics_se_t1_exam_5.pdf
 files/3as/3as_physics_se_t1_exam_51.pdf
 files/3as/3as_physics_se_t1_exam_52.pdf
 files/3as/3as_physics_se_t1_exam_53.pdf
@@ -9725,6 +9730,7 @@ files/3as/3as_physics_se_t1_exam_56.pdf
 files/3as/3as_physics_se_t1_exam_57.pdf
 files/3as/3as_physics_se_t1_exam_58.pdf
 files/3as/3as_physics_se_t1_exam_59.pdf
+files/3as/3as_physics_se_t1_exam_6.pdf
 files/3as/3as_physics_se_t1_exam_60.pdf
 files/3as/3as_physics_se_t1_exam_61.pdf
 files/3as/3as_physics_se_t1_exam_62.pdf
@@ -9766,6 +9772,25 @@ files/3as/3as_physics_se_t1_resume_31bf0.pdf
 files/3as/3as_physics_se_t1_resume_3a6c5.pdf
 files/3as/3as_physics_se_t1_resume_770fe.pdf
 files/3as/3as_physics_se_t1_resume_a612d.pdf
+files/3as/3as_physics_se_t2_exam_78.pdf
+files/3as/3as_physics_se_t2_exam_79.pdf
+files/3as/3as_physics_se_t2_exam_80.pdf
+files/3as/3as_physics_se_t2_exam_81.pdf
+files/3as/3as_physics_se_t2_exam_82.pdf
+files/3as/3as_physics_se_t2_exam_83.pdf
+files/3as/3as_physics_se_t2_exam_84.pdf
+files/3as/3as_physics_se_t2_exam_85.pdf
+files/3as/3as_physics_se_t2_exam_86.pdf
+files/3as/3as_physics_se_t2_exam_87.pdf
+files/3as/3as_physics_se_t2_exam_88.pdf
+files/3as/3as_physics_se_t2_exam_89.pdf
+files/3as/3as_physics_se_t2_exam_90.pdf
+files/3as/3as_physics_se_t2_exam_93.pdf
+files/3as/3as_physics_se_t2_exam_94.pdf
+files/3as/3as_physics_se_t2_exam_96.pdf
+files/3as/3as_physics_se_t2_exam_97.pdf
+files/3as/3as_physics_se_t2_exam_98.pdf
+files/3as/3as_physics_se_t2_exam_99.pdf
 files/3as/3as_science_se_book_9944c.pdf
 files/3as/3as_science_se_book_d5299.pdf
 files/3as/3as_science_se_book_ea32e.pdf
