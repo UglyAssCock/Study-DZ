@@ -36,7 +36,7 @@ jobs:
       - name: Install Scraper and PDF Libraries
         run: pip install requests beautifulsoup4 pillow lxml pypdf
 
-      - name: Harvest Up To 10000 PDFs and Merge 5eme/BEM/BAC Corrections
+      - name: Harvest Up To 10000 PDFs and Merge BAC, BEM, and 5eme With Corrections
         env:
           MAX_FILES: ${{ github.event.inputs.max_files_per_run }}
           EXTRA_URL: ${{ github.event.inputs.extra_url }}
@@ -71,12 +71,19 @@ jobs:
           content_hashes = set()
           seen_canonical_names = set()
 
+          # Remove old unmerged bac_/bem_/5eme_ files that do not end with _merged.pdf
           for root, _, fnames in os.walk("files"):
               for fn in sorted(fnames):
                   if not fn.lower().endswith(".pdf"):
                       continue
                   p = os.path.join(root, fn)
                   lower_fn = fn.lower()
+                  if lower_fn.startswith(("bac_", "bem_", "5eme_")) and not lower_fn.endswith("_merged.pdf"):
+                      try:
+                          os.remove(p)
+                          continue
+                      except Exception:
+                          pass
                   try:
                       with open(p, "rb") as pf:
                           raw = pf.read()
@@ -132,12 +139,12 @@ jobs:
                   out = io.BytesIO()
                   writer.write(out)
                   merged = out.getvalue()
-                  return merged if len(merged) >= 1500 else subject_bytes
+                  return merged if len(merged) >= 1500 else None
               except Exception:
-                  return subject_bytes
+                  return None
 
           def register_unique_pdf_bytes(raw_bytes, out_filepath, allow_overwrite=False):
-              if not out_filepath or len(raw_bytes) < 1500 or raw_bytes[:4] != b"%PDF":
+              if not out_filepath or not raw_bytes or len(raw_bytes) < 1500 or raw_bytes[:4] != b"%PDF":
                   return False
               md5_hex = hashlib.md5(raw_bytes).hexdigest()
               base_name = os.path.basename(out_filepath).lower()
@@ -176,23 +183,23 @@ jobs:
           ]
 
           subject_url_slugs = [
-              ("math", ["/maths/", "/math/", "/mathematiques", "-math-"]),
-              ("physics", ["/physics/", "/physique", "/phys/", "-physique-"]),
+              ("math", ["/maths/", "/maths", "/math/", "/mathematiques", "-math-"]),
+              ("physics", ["/physics/", "/physics", "/physique", "/phys/", "-physique-"]),
               ("science", ["natural-sciences", "sciences-naturelles", "primary/sciences", "1am/sciences", "2am/sciences", "3am/sciences", "4am/sciences", "1as/sciences", "2as/sciences", "3as/sciences", "-sciences-"]),
-              ("arabic", ["/arabic/", "/arabe", "-arabic-", "-arabe-"]),
-              ("french", ["/francais", "/french/", "-francais-", "-french-"]),
-              ("english", ["/english/", "/anglais", "-english-", "-anglais-"]),
-              ("hisgeo", ["history-geography", "histoire-geographie", "/history/", "/histoire"]),
-              ("islamic", ["islamic-education", "sciences-islamiques", "/islamic/", "/islamia"]),
-              ("philo", ["/philosophy/", "/philosophie", "/philo/"]),
-              ("civics", ["civic-education", "education-civique", "/civic/", "/civics/"]),
-              ("cs", ["computer-science", "/informatique"]),
-              ("accounting", ["/accounting/", "/comptabilite", "/gestion"]),
-              ("economy", ["/economics/", "/economie"]),
-              ("law", ["/droit", "/law/"]),
-              ("engineering", ["civil-engineering", "electrical-engineering", "mechanical-engineering", "process-engineering", "/engineering/", "genie-civil", "genie-electrique", "genie-mecanique", "genie-des-procedes", "/technologie"]),
-              ("amazigh", ["/amazigh/", "/tamazight"]),
-              ("third_lang", ["/espagnol", "/allemand", "/italien", "/spanish/", "/german/", "/italian/"]),
+              ("arabic", ["/arabic/", "/arabic", "/arabe", "-arabic-", "-arabe-"]),
+              ("french", ["/francais/", "/francais", "/french/", "/french", "-francais-", "-french-"]),
+              ("english", ["/english/", "/english", "/anglais", "-english-", "-anglais-"]),
+              ("hisgeo", ["his-geo", "history-geography", "histoire-geographie", "/history/", "/history", "/histoire"]),
+              ("islamic", ["islamic-education", "sciences-islamiques", "/islamic/", "/islamic", "/islamia"]),
+              ("philo", ["/philo/", "/philo", "/philosophy/", "/philosophy", "/philosophie"]),
+              ("civics", ["civic-education", "education-civique", "/civic/", "/civic", "/civics/"]),
+              ("cs", ["/informatique/", "/informatique", "computer-science"]),
+              ("accounting", ["/accounting/", "/accounting", "/comptabilite", "/gestion"]),
+              ("economy", ["/economy/", "/economy", "/economics/", "/economie"]),
+              ("law", ["/law/", "/law", "/droit"]),
+              ("engineering", ["civil-engineering", "electrical-engineering", "mechanical-engineering", "process-engineering", "/engineering/", "/technology/", "/technology", "genie-civil", "genie-electrique", "genie-mecanique", "genie-des-procedes", "/technologie"]),
+              ("amazigh", ["/amazigh/", "/amazigh", "/tamazight"]),
+              ("third_lang", ["/espagnol", "/allemand", "/italien", "/spanish/", "/spanish", "/german/", "/german", "/italian/", "/italian"]),
               ("art", ["art-education", "music-education"]),
           ]
 
@@ -323,10 +330,13 @@ jobs:
                       level = "3as"
 
               subject = None
-              for code, slugs in subject_url_slugs:
-                  if any(s in t for s in slugs):
-                      subject = code
-                      break
+              if re.search(r'/(?:bac|bem)-20\d\d/(?:[a-z-]+/)?sciences/?(?:$|\s)', t):
+                  subject = "science"
+              if not subject:
+                  for code, slugs in subject_url_slugs:
+                      if any(s in t for s in slugs):
+                          subject = code
+                          break
               if not subject:
                   for code, words in subject_text_rules:
                       if any(w in t for w in words):
@@ -449,7 +459,9 @@ jobs:
                   r = requests.get(page_url, headers=headers, timeout=20)
                   if r.status_code != 200:
                       return False
-                  if r.content[:4] == b"%PDF" and not is_archive_merged:
+                  if r.content[:4] == b"%PDF":
+                      if is_archive_merged:
+                          return False
                       return register_unique_pdf_bytes(r.content, out_filepath)
 
                   soup = BeautifulSoup(r.text, "html.parser")
@@ -457,7 +469,6 @@ jobs:
                   correction_pdfs = []
                   companion_correction_pages = []
 
-                  # If URL is https://eddirasa.com/examen-math-cinqueme-2021/, automatically add https://eddirasa.com/correction-examen-math-cinqueme-2021/
                   if "/examen-" in page_url and "/correction-examen-" not in page_url:
                       auto_corr_url = page_url.replace("/examen-", "/correction-examen-", 1)
                       companion_correction_pages.append(auto_corr_url)
@@ -469,9 +480,9 @@ jobs:
                   for tag in soup.find_all(["a", "button", "iframe", "embed", "object"]):
                       tag_text = tag.get_text(" ", strip=True)
                       raw_href = tag.get("href") or tag.get("data-url") or tag.get("data-href") or ""
-                      if raw_href and any(w in tag_text for w in ["تصحيح الموضوع", "عرض التصحيح", "الحل النموذجي", "تصحيح موضوع"]):
+                      if raw_href and any(w in tag_text for w in ["تصحيح الموضوع", "عرض التصحيح", "الحل النموذجي", "تصحيح موضوع", "التصحيح"]):
                           full_corr_page = urllib.parse.urljoin(page_url, raw_href.replace(r"\/", "/"))
-                          if not full_corr_page.lower().endswith(".pdf") and full_corr_page not in companion_correction_pages:
+                          if not full_corr_page.lower().endswith(".pdf") and full_corr_page != page_url and full_corr_page not in companion_correction_pages:
                               companion_correction_pages.append(full_corr_page)
 
                       for attr in ["href", "src", "data", "data-pdf", "data-file", "data-url", "data-src", "data-href"]:
@@ -503,24 +514,34 @@ jobs:
                           final_pdf_bytes = pr.content
                           merged_done = False
 
-                          # 1. Try direct correction PDF links on the same page
                           if correction_pdfs:
-                              try:
-                                  cr = requests.get(correction_pdfs[0], headers=headers, timeout=20)
-                                  if cr.status_code == 200 and cr.content[:4] == b"%PDF":
-                                      final_pdf_bytes = merge_two_pdfs_bytes(pr.content, cr.content)
-                                      merged_done = True
-                              except Exception:
-                                  pass
+                              for corr_u in correction_pdfs:
+                                  if corr_u == pdf_candidate:
+                                      continue
+                                  try:
+                                      cr = requests.get(corr_u, headers=headers, timeout=20)
+                                      if cr.status_code == 200 and cr.content[:4] == b"%PDF":
+                                          merged_res = merge_two_pdfs_bytes(pr.content, cr.content)
+                                          if merged_res:
+                                              final_pdf_bytes = merged_res
+                                              merged_done = True
+                                              break
+                                  except Exception:
+                                      pass
 
-                          # 2. Try companion correction HTML page (e.g. correction-examen-math-cinqueme-2021)
                           if not merged_done and companion_correction_pages:
                               for comp_url in companion_correction_pages:
                                   corr_bytes = extract_first_pdf_bytes_from_page(comp_url)
                                   if corr_bytes:
-                                      final_pdf_bytes = merge_two_pdfs_bytes(pr.content, corr_bytes)
-                                      merged_done = True
-                                      break
+                                      merged_res = merge_two_pdfs_bytes(pr.content, corr_bytes)
+                                      if merged_res:
+                                          final_pdf_bytes = merged_res
+                                          merged_done = True
+                                          break
+
+                          # If this is a BAC, BEM, or 5eme archive file, ONLY save it when merged with its correction!
+                          if is_archive_merged and not merged_done:
+                              continue
 
                           if register_unique_pdf_bytes(final_pdf_bytes, out_filepath, allow_overwrite=is_archive_merged):
                               return True
@@ -569,7 +590,6 @@ jobs:
               if saved_total >= max_to_save or is_time_up():
                   return False
 
-              # If a correction-examen URL is passed directly, convert it to its examen- URL so both are merged together!
               if "/correction-examen-" in url:
                   url = url.replace("/correction-examen-", "/examen-", 1)
 
@@ -616,7 +636,6 @@ jobs:
               if saved_total >= max_to_save or is_time_up():
                   return
 
-              # Direct exam or correction-examen URLs for 5eme go straight to the merger!
               if "/examen-" in hub_url or "/correction-examen-" in hub_url:
                   process_single_article_url(hub_url, "", None)
                   return
@@ -633,6 +652,7 @@ jobs:
 
                   parent_context = urllib.parse.unquote(hub_url) + " " + page_title + " " + h1_txt
                   parent_meta = analyze_metadata(parent_context)
+                  is_bac_or_bem_hub = parent_meta.get("archive_type") in ["bac", "bem"]
 
                   for nav_tag in soup.find_all(["nav", "header", "footer", "aside"]):
                       nav_tag.decompose()
@@ -654,13 +674,22 @@ jobs:
                       if full_u.rstrip("/") == hub_url.rstrip("/") or full_u in seen_sub_urls:
                           continue
 
-                      sub_trim = detect_trimester_strict(urllib.parse.unquote(full_u) + " " + txt, fallback_trim=parent_meta["trimester"])
-                      if parent_meta.get("has_trimester") and sub_trim != parent_meta["trimester"] and "رقم" not in txt:
+                      # On BAC/BEM hubs, skip raw single .pdf links ('الموضوع' alone) so we open the combined subject page that has BOTH exam + correction!
+                      if is_bac_or_bem_hub and (full_u.lower().endswith(".pdf") or txt == "الموضوع"):
+                          continue
+
+                      context_txt = txt
+                      if txt in ["الموضوع والتصحيح", "عرض الموضوع"] and a.parent:
+                          card_box = a.find_parent(["li", "div", "tr", "article"]) or a.parent
+                          context_txt = card_box.get_text(" ", strip=True)
+
+                      sub_trim = detect_trimester_strict(urllib.parse.unquote(full_u) + " " + context_txt, fallback_trim=parent_meta["trimester"])
+                      if parent_meta.get("has_trimester") and sub_trim != parent_meta["trimester"] and "رقم" not in context_txt:
                           continue
 
                       is_child_path = full_u.startswith(hub_url.rstrip("/"))
                       has_study_word = any(
-                          w in (txt + " " + urllib.parse.unquote(full_u)).lower()
+                          w in (context_txt + " " + urllib.parse.unquote(full_u)).lower()
                           for w in [
                               "اختبار", "إختبار", "فرض", "درس", "ملخص", "مذكرة", "موضوع", "نموذج", "رقم",
                               "كتاب", "بكالوريا", "شهادة", "exam", "test", "devoir", "sujet", ".pdf", "file="
@@ -668,7 +697,7 @@ jobs:
                       )
                       if is_child_path or has_study_word:
                           seen_sub_urls.add(full_u)
-                          article_items.append((full_u, txt))
+                          article_items.append((full_u, context_txt))
 
                   if article_items:
                       with ThreadPoolExecutor(max_workers=10) as executor:
