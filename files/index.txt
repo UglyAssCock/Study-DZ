@@ -20013,6 +20013,7 @@ files/bac/bac_2026_french_se_merged.pdf
 files/bac/bac_2026_hisgeo_se_merged.pdf
 files/bac/bac_2026_islamic_se_merged.pdf
 files/bac/bac_2026_math_se_merged.pdf
+files/bac/bac_2026_philo_se_merged.pdf
 files/bac/bac_2026_physics_se_merged.pdf
 files/bac/bac_2026_science_se_merged.pdf
 files/2am/2am_arabic_book_82bbd.pdf
