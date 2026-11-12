@@ -470,12 +470,20 @@ jobs:
                   companion_correction_pages = []
 
                   if "/examen-" in page_url and "/correction-examen-" not in page_url:
-                      auto_corr_url = page_url.replace("/examen-", "/correction-examen-", 1)
-                      companion_correction_pages.append(auto_corr_url)
-                      if "-arabic-" in auto_corr_url:
-                          companion_correction_pages.append(auto_corr_url.replace("-arabic-", "-arabe-"))
-                      elif "-arabe-" in auto_corr_url:
-                          companion_correction_pages.append(auto_corr_url.replace("-arabe-", "-arabic-"))
+                   auto_corr_url = page_url.replace("/examen-", "/correction-examen-", 1)
+                   companion_correction_pages.append(auto_corr_url)
+                   if "-arabic-" in auto_corr_url:
+                       companion_correction_pages.append(auto_corr_url.replace("-arabic-", "-arabe-"))
+                   elif "-arabe-" in auto_corr_url:
+                       companion_correction_pages.append(auto_corr_url.replace("-arabe-", "-arabic-"))
+
+               if "/bac-" in page_url and "/correction-bac-" not in page_url:
+                   auto_corr_url = page_url.replace("/bac-", "/correction-bac-", 1)
+                   companion_correction_pages.append(auto_corr_url)
+                   if "-se-english-" in auto_corr_url:
+                       companion_correction_pages.append(auto_corr_url.replace("-se-english-", "-sci-english-"))
+                   if "-tamazigh-" in auto_corr_url:
+                       companion_correction_pages.append(auto_corr_url.replace("-tamazigh-", "-tamazight-"))
 
                   for tag in soup.find_all(["a", "button", "iframe", "embed", "object"]):
                       tag_text = tag.get_text(" ", strip=True)
@@ -636,7 +644,7 @@ jobs:
               if saved_total >= max_to_save or is_time_up():
                   return
 
-              if "/examen-" in hub_url or "/correction-examen-" in hub_url:
+              if any(k in hub_url for k in ["/examen-", "/correction-examen-", "/bac-", "/correction-bac-"]) and "bac-solutions" not in hub_url:
                   process_single_article_url(hub_url, "", None)
                   return
 
