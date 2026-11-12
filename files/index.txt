@@ -20005,6 +20005,7 @@ files/2as/2as_third_lang_le_t3_exam_6.pdf
 files/2as/2as_third_lang_le_t3_exam_7.pdf
 files/2as/2as_third_lang_le_t3_exam_8.pdf
 files/2as/2as_third_lang_le_t3_exam_9.pdf
+files/bac/bac_2012_french_se_merged.pdf
 files/bac/bac_2012_hisgeo_se_merged.pdf
 files/bac/bac_2012_math_se_merged.pdf
 files/bac/bac_2012_physics_se_merged.pdf
