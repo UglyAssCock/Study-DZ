@@ -7950,6 +7950,17 @@ files/3as/3as_hisgeo_ge_t1_exam_7.pdf
 files/3as/3as_hisgeo_ge_t1_exam_8.pdf
 files/3as/3as_hisgeo_ge_t1_exam_9.pdf
 files/3as/3as_hisgeo_ge_t2_exam_1.pdf
+files/3as/3as_hisgeo_ge_t2_exam_2.pdf
+files/3as/3as_hisgeo_ge_t2_exam_3.pdf
+files/3as/3as_hisgeo_ge_t2_exam_4.pdf
+files/3as/3as_hisgeo_ge_t2_exam_6.pdf
+files/3as/3as_hisgeo_ge_t2_exam_7.pdf
+files/3as/3as_hisgeo_ge_t2_exam_8.pdf
+files/3as/3as_hisgeo_ge_t2_exam_9.pdf
+files/3as/3as_hisgeo_ge_t3_exam_1.pdf
+files/3as/3as_hisgeo_ge_t3_exam_2.pdf
+files/3as/3as_hisgeo_ge_t3_exam_6.pdf
+files/3as/3as_hisgeo_ge_t3_exam_8.pdf
 files/3as/3as_hisgeo_lesson_75.pdf
 files/3as/3as_hisgeo_lp_t1_exam_1.pdf
 files/3as/3as_hisgeo_lp_t1_exam_10.pdf
