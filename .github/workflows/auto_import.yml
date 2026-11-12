@@ -71,7 +71,6 @@ jobs:
           content_hashes = set()
           seen_canonical_names = set()
 
-          # Remove old unmerged bac_/bem_/5eme_ files that do not end with _merged.pdf
           for root, _, fnames in os.walk("files"):
               for fn in sorted(fnames):
                   if not fn.lower().endswith(".pdf"):
@@ -183,23 +182,23 @@ jobs:
           ]
 
           subject_url_slugs = [
-              ("math", ["/maths/", "/maths", "/math/", "/mathematiques", "-math-"]),
-              ("physics", ["/physics/", "/physics", "/physique", "/phys/", "-physique-"]),
-              ("science", ["natural-sciences", "sciences-naturelles", "primary/sciences", "1am/sciences", "2am/sciences", "3am/sciences", "4am/sciences", "1as/sciences", "2as/sciences", "3as/sciences", "-sciences-"]),
+              ("math", ["/maths/", "/maths", "/math/", "/mathematiques", "-math-", "-maths-"]),
+              ("physics", ["/physics/", "/physics", "/physique", "/phys/", "-physique-", "-physics-"]),
+              ("science", ["natural-sciences", "sciences-naturelles", "primary/sciences", "1am/sciences", "2am/sciences", "3am/sciences", "4am/sciences", "1as/sciences", "2as/sciences", "3as/sciences", "-sciences-", "-science-"]),
               ("arabic", ["/arabic/", "/arabic", "/arabe", "-arabic-", "-arabe-"]),
               ("french", ["/francais/", "/francais", "/french/", "/french", "-francais-", "-french-"]),
               ("english", ["/english/", "/english", "/anglais", "-english-", "-anglais-"]),
               ("hisgeo", ["his-geo", "history-geography", "histoire-geographie", "/history/", "/history", "/histoire"]),
-              ("islamic", ["islamic-education", "sciences-islamiques", "/islamic/", "/islamic", "/islamia"]),
-              ("philo", ["/philo/", "/philo", "/philosophy/", "/philosophy", "/philosophie"]),
-              ("civics", ["civic-education", "education-civique", "/civic/", "/civic", "/civics/"]),
-              ("cs", ["/informatique/", "/informatique", "computer-science"]),
-              ("accounting", ["/accounting/", "/accounting", "/comptabilite", "/gestion"]),
-              ("economy", ["/economy/", "/economy", "/economics/", "/economie"]),
-              ("law", ["/law/", "/law", "/droit"]),
+              ("islamic", ["islamic-education", "sciences-islamiques", "/islamic/", "/islamic", "/islamia", "-islamic-", "-islamia-"]),
+              ("philo", ["/philo/", "/philo", "/philosophy/", "/philosophy", "/philosophie", "-philosophy-", "-philo-"]),
+              ("civics", ["civic-education", "education-civique", "/civic/", "/civic", "/civics/", "-civic-"]),
+              ("cs", ["/informatique/", "/informatique", "computer-science", "-informatique-"]),
+              ("accounting", ["/accounting/", "/accounting", "/comptabilite", "/gestion", "-accounting-", "-gestion-"]),
+              ("economy", ["/economy/", "/economy", "/economics/", "/economie", "-economy-", "-economie-"]),
+              ("law", ["/law/", "/law", "/droit", "-law-", "-droit-"]),
               ("engineering", ["civil-engineering", "electrical-engineering", "mechanical-engineering", "process-engineering", "/engineering/", "/technology/", "/technology", "genie-civil", "genie-electrique", "genie-mecanique", "genie-des-procedes", "/technologie"]),
-              ("amazigh", ["/amazigh/", "/amazigh", "/tamazight"]),
-              ("third_lang", ["/espagnol", "/allemand", "/italien", "/spanish/", "/spanish", "/german/", "/german", "/italian/", "/italian"]),
+              ("amazigh", ["/amazigh/", "/amazigh", "/tamazight", "-tamazigh-", "-tamazight-", "-amazigh-"]),
+              ("third_lang", ["/espagnol", "/allemand", "/italien", "/spanish/", "/spanish", "/german/", "/german", "/italian/", "/italian", "-espagnol-", "-allemand-", "-italien-"]),
               ("art", ["art-education", "music-education"]),
           ]
 
@@ -227,12 +226,12 @@ jobs:
           stream_rules = [
               ("tc_l", ["جذع مشترك آداب", "ج م آ", "ج.م.آ", "literary-1as"]),
               ("tc_st", ["جذع مشترك علوم", "ج م ع", "ج.م.ع", "science-1as"]),
-              ("lp", ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "شعب أدبية", "أدبي", "exams-literary", "tests-literary", "literature-philosophy", "آداب-وفلسفة", "lettres"]),
-              ("ge", ["تسيير واقتصاد", "تسيير و اقتصاد", "exams-management", "tests-management", "management-economics", "تسيير-واقتصاد", "management"]),
-              ("tm", ["تقني رياضي", "التقني الرياضي", "هندسة مدنية", "هندسة كهربائية", "هندسة ميكانيكية", "هندسة الطرائق", "technical-mathematics", "تقني-رياضي", "tech-math", "genie-"]),
-              ("le", ["لغات أجنبية", "لغات اجنبية", "إسبانية", "ألمانية", "إيطالية", "foreign-languages", "لغات-أجنبية", "langues", "espagnol", "allemand", "italien"]),
-              ("mt", ["شعبة رياضيات", "شعبة الرياضيات", "exams-math", "tests-math", "/mathematics/"]),
-              ("se", ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "علوم-تجريبية", "/bac-20", "/sciences/"]),
+              ("lp", ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "شعب أدبية", "أدبي", "exams-literary", "tests-literary", "literature-philosophy", "آداب-وفلسفة", "lettres", "-lp-", "-lp/"]),
+              ("ge", ["تسيير واقتصاد", "تسيير و اقتصاد", "exams-management", "tests-management", "management-economics", "تسيير-واقتصاد", "management", "-ge-", "-ge/"]),
+              ("tm", ["تقني رياضي", "التقني الرياضي", "هندسة مدنية", "هندسة كهربائية", "هندسة ميكانيكية", "هندسة الطرائق", "technical-mathematics", "تقني-رياضي", "tech-math", "genie-", "-tm-", "-tm/"]),
+              ("le", ["لغات أجنبية", "لغات اجنبية", "إسبانية", "ألمانية", "إيطالية", "foreign-languages", "لغات-أجنبية", "langues", "espagnol", "allemand", "italien", "-le-", "-le/"]),
+              ("mt", ["شعبة رياضيات", "شعبة الرياضيات", "exams-math", "tests-math", "/mathematics/", "-mt-", "-mt/"]),
+              ("se", ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "علوم-تجريبية", "/bac-20", "/sciences/", "-se/", "-se-", "-sci-", "-sc-"]),
           ]
 
           def detect_trimester_strict(text, fallback_trim="t1"):
@@ -286,7 +285,7 @@ jobs:
 
               is_solution = any(
                   w in t
-                  for w in ["التصحيح فقط", "تصحيح موضوع", "_sol.", "-sol.", "corrige-", "correction-examen-"]
+                  for w in ["التصحيح فقط", "تصحيح موضوع", "_sol.", "-sol.", "corrige-", "correction-examen-", "correction-bac-", "correction-bem-"]
               )
 
               has_trimester = any(
@@ -348,7 +347,7 @@ jobs:
               stream = parent_meta.get("stream") if parent_meta else None
               for code, keys in stream_rules:
                   if code == "se" and "/bac-20" in keys:
-                      if any(k in t for k in ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "علوم-تجريبية"]) or re.search(r'/bac-20\d\d/sciences/', t):
+                      if any(k in t for k in ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "علوم-تجريبية", "-se/", "-se-", "-sci-", "-sc-"]) or re.search(r'/bac-20\d\d/sciences/', t):
                           stream = "se"
                           break
                   elif any(k in t for k in keys):
@@ -470,20 +469,20 @@ jobs:
                   companion_correction_pages = []
 
                   if "/examen-" in page_url and "/correction-examen-" not in page_url:
-                   auto_corr_url = page_url.replace("/examen-", "/correction-examen-", 1)
-                   companion_correction_pages.append(auto_corr_url)
-                   if "-arabic-" in auto_corr_url:
-                       companion_correction_pages.append(auto_corr_url.replace("-arabic-", "-arabe-"))
-                   elif "-arabe-" in auto_corr_url:
-                       companion_correction_pages.append(auto_corr_url.replace("-arabe-", "-arabic-"))
+                      auto_corr_url = page_url.replace("/examen-", "/correction-examen-", 1)
+                      companion_correction_pages.append(auto_corr_url)
+                      if "-arabic-" in auto_corr_url:
+                          companion_correction_pages.append(auto_corr_url.replace("-arabic-", "-arabe-"))
+                      elif "-arabe-" in auto_corr_url:
+                          companion_correction_pages.append(auto_corr_url.replace("-arabe-", "-arabic-"))
 
-               if "/bac-" in page_url and "/correction-bac-" not in page_url:
-                   auto_corr_url = page_url.replace("/bac-", "/correction-bac-", 1)
-                   companion_correction_pages.append(auto_corr_url)
-                   if "-se-english-" in auto_corr_url:
-                       companion_correction_pages.append(auto_corr_url.replace("-se-english-", "-sci-english-"))
-                   if "-tamazigh-" in auto_corr_url:
-                       companion_correction_pages.append(auto_corr_url.replace("-tamazigh-", "-tamazight-"))
+                  if "/bac-" in page_url and "/correction-bac-" not in page_url:
+                      auto_corr_url = page_url.replace("/bac-", "/correction-bac-", 1)
+                      companion_correction_pages.append(auto_corr_url)
+                      if "-se-english-" in auto_corr_url:
+                          companion_correction_pages.append(auto_corr_url.replace("-se-english-", "-sci-english-"))
+                      if "-tamazigh-" in auto_corr_url:
+                          companion_correction_pages.append(auto_corr_url.replace("-tamazigh-", "-tamazight-"))
 
                   for tag in soup.find_all(["a", "button", "iframe", "embed", "object"]):
                       tag_text = tag.get_text(" ", strip=True)
@@ -547,7 +546,6 @@ jobs:
                                           merged_done = True
                                           break
 
-                          # If this is a BAC, BEM, or 5eme archive file, ONLY save it when merged with its correction!
                           if is_archive_merged and not merged_done:
                               continue
 
@@ -600,6 +598,9 @@ jobs:
 
               if "/correction-examen-" in url:
                   url = url.replace("/correction-examen-", "/examen-", 1)
+              elif "/correction-bac-" in url:
+                  url = url.replace("/correction-bac-", "/bac-", 1)
+                  url = url.replace("-sci-english-", "-se-english-").replace("-tamazight-", "-tamazigh-")
 
               clean_hint = title_hint.strip()
               if clean_hint in ["الحل", "التصحيح", "عرض التصحيح", "تحميل التصحيح"]:
@@ -682,7 +683,6 @@ jobs:
                       if full_u.rstrip("/") == hub_url.rstrip("/") or full_u in seen_sub_urls:
                           continue
 
-                      # On BAC/BEM hubs, skip raw single .pdf links ('الموضوع' alone) so we open the combined subject page that has BOTH exam + correction!
                       if is_bac_or_bem_hub and (full_u.lower().endswith(".pdf") or txt == "الموضوع"):
                           continue
 
