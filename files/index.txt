@@ -20113,6 +20113,7 @@ files/bac/bac_2026_english_se_merged.pdf
 files/bac/bac_2026_french_se_merged.pdf
 files/bac/bac_2026_hisgeo_se_merged.pdf
 files/bac/bac_2026_islamic_se_merged.pdf
+files/bac/bac_2026_law_ge_merged.pdf
 files/bac/bac_2026_math_se_merged.pdf
 files/bac/bac_2026_philo_se_merged.pdf
 files/bac/bac_2026_physics_se_merged.pdf
