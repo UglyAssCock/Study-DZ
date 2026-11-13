@@ -20037,6 +20037,7 @@ files/bac/bac_2016_science_se_merged.pdf
 files/bac/bac_2017_arabic_se_merged.pdf
 files/bac/bac_2017_french_se_merged.pdf
 files/bac/bac_2017_hisgeo_se_merged.pdf
+files/bac/bac_2017_law_ge_merged.pdf
 files/bac/bac_2017_math_se_merged.pdf
 files/bac/bac_2017_physics_se_merged.pdf
 files/bac/bac_2017_science_se_merged.pdf
@@ -20044,6 +20045,7 @@ files/bac/bac_2018_arabic_se_merged.pdf
 files/bac/bac_2018_french_se_merged.pdf
 files/bac/bac_2018_hisgeo_se_merged.pdf
 files/bac/bac_2018_islamic_se_merged.pdf
+files/bac/bac_2018_law_ge_merged.pdf
 files/bac/bac_2018_math_se_merged.pdf
 files/bac/bac_2018_physics_se_merged.pdf
 files/bac/bac_2018_science_se_merged.pdf
@@ -20051,6 +20053,7 @@ files/bac/bac_2019_arabic_se_merged.pdf
 files/bac/bac_2019_french_se_merged.pdf
 files/bac/bac_2019_hisgeo_se_merged.pdf
 files/bac/bac_2019_islamic_se_merged.pdf
+files/bac/bac_2019_law_ge_merged.pdf
 files/bac/bac_2019_math_se_merged.pdf
 files/bac/bac_2019_physics_se_merged.pdf
 files/bac/bac_2019_science_se_merged.pdf
@@ -20058,6 +20061,7 @@ files/bac/bac_2020_arabic_se_merged.pdf
 files/bac/bac_2020_french_se_merged.pdf
 files/bac/bac_2020_hisgeo_se_merged.pdf
 files/bac/bac_2020_islamic_se_merged.pdf
+files/bac/bac_2020_law_ge_merged.pdf
 files/bac/bac_2020_math_se_merged.pdf
 files/bac/bac_2020_physics_se_merged.pdf
 files/bac/bac_2020_science_se_merged.pdf
@@ -20065,6 +20069,7 @@ files/bac/bac_2021_arabic_se_merged.pdf
 files/bac/bac_2021_french_se_merged.pdf
 files/bac/bac_2021_hisgeo_se_merged.pdf
 files/bac/bac_2021_islamic_se_merged.pdf
+files/bac/bac_2021_law_ge_merged.pdf
 files/bac/bac_2021_math_se_merged.pdf
 files/bac/bac_2021_physics_se_merged.pdf
 files/bac/bac_2021_science_se_merged.pdf
@@ -20074,6 +20079,7 @@ files/bac/bac_2022_english_se_merged.pdf
 files/bac/bac_2022_french_se_merged.pdf
 files/bac/bac_2022_hisgeo_se_merged.pdf
 files/bac/bac_2022_islamic_se_merged.pdf
+files/bac/bac_2022_law_ge_merged.pdf
 files/bac/bac_2022_math_se_merged.pdf
 files/bac/bac_2022_philo_se_merged.pdf
 files/bac/bac_2022_physics_se_merged.pdf
@@ -20084,6 +20090,7 @@ files/bac/bac_2023_english_se_merged.pdf
 files/bac/bac_2023_french_se_merged.pdf
 files/bac/bac_2023_hisgeo_se_merged.pdf
 files/bac/bac_2023_islamic_se_merged.pdf
+files/bac/bac_2023_law_ge_merged.pdf
 files/bac/bac_2023_math_se_merged.pdf
 files/bac/bac_2023_philo_se_merged.pdf
 files/bac/bac_2023_physics_se_merged.pdf
@@ -20094,6 +20101,7 @@ files/bac/bac_2024_english_se_merged.pdf
 files/bac/bac_2024_french_se_merged.pdf
 files/bac/bac_2024_hisgeo_se_merged.pdf
 files/bac/bac_2024_islamic_se_merged.pdf
+files/bac/bac_2024_law_ge_merged.pdf
 files/bac/bac_2024_math_se_merged.pdf
 files/bac/bac_2024_philo_se_merged.pdf
 files/bac/bac_2024_physics_se_merged.pdf
@@ -20103,6 +20111,7 @@ files/bac/bac_2025_english_se_merged.pdf
 files/bac/bac_2025_french_se_merged.pdf
 files/bac/bac_2025_hisgeo_se_merged.pdf
 files/bac/bac_2025_islamic_se_merged.pdf
+files/bac/bac_2025_law_ge_merged.pdf
 files/bac/bac_2025_math_se_merged.pdf
 files/bac/bac_2025_philo_se_merged.pdf
 files/bac/bac_2025_physics_se_merged.pdf
