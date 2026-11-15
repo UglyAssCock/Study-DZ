@@ -104,7 +104,8 @@ jobs:
               max_to_save = 10000
 
           headers = {
-              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+              "Referer": "https://eddirasa.com/"
           }
 
           def write_index_and_push(msg):
@@ -124,7 +125,7 @@ jobs:
                       subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
 
           def url_hash(u):
-              return hashlib.md5(u.strip().encode("utf-8")).hexdigest()[:12]
+              return hashlib.md5(urllib.parse.unquote(u).strip().encode("utf-8")).hexdigest()[:12]
 
           def merge_two_pdfs_bytes(subject_bytes, correction_bytes):
               try:
@@ -190,26 +191,25 @@ jobs:
               ("hisgeo", ["his-geo", "hisgeo", "history-geography", "histoire-geographie", "/history/", "/history", "/histoire"]),
               ("islamic", ["islamic-education", "sciences-islamiques", "/islamic/", "/islamic", "/islamia", "-islamic-", "-islamia-", "-islamic"]),
               ("philo", ["/philo/", "/philo", "/philosophy/", "/philosophy", "/philosophie", "-philosophy-", "-philo-"]),
-              ("civics", ["civic-education", "education-civique", "/civic/", "/civic", "/civics/", "-civic-", "-civil"]),
+              ("civics", ["civic-education", "education-civique", "/civic/", "/civic", "/civics/", "-civic-", "-civil", "-civ-"]),
               ("cs", ["/informatique/", "/informatique", "computer-science", "-informatique-"]),
               ("accounting", ["/accounting/", "/accounting", "/comptabilite", "/gestion", "-accounting-", "-gestion-"]),
               ("economy", ["/economy/", "/economy", "/economics/", "/economie", "-economy-", "-economie-"]),
               ("law", ["/law/", "/law", "/droit", "-law-", "-droit-"]),
               ("engineering", ["civil-engineering", "electrical-engineering", "mechanical-engineering", "process-engineering", "/engineering/", "/technology/", "/technology", "genie-civil", "genie-electrique", "genie-mecanique", "genie-des-procedes", "/technologie"]),
-              ("amazigh", ["/amazigh/", "/amazigh", "/tamazight", "-tamazigh-", "-tamazight-", "-amazigh-", "-tamazight", "-amazig"]),
+              ("amazigh", ["/amazigh/", "/amazigh", "/tamazight", "-tamazigh-", "-tamazight-", "-amazigh-", "-tamazight", "-amazig", "-tam-"]),
               ("third_lang", ["/espagnol", "/allemand", "/italien", "/spanish/", "/spanish", "/german/", "/german", "/italian/", "/italian", "-espagnol-", "-allemand-", "-italien-"]),
               ("art", ["art-education", "music-education"]),
               ("math", ["/maths/", "/maths", "/math/", "/mathematiques", "-math-", "-maths-", "-maths", "-math"]),
           ]
 
           subject_text_rules = [
-              ("math", ["الرياضيات", "رياضيات"]),
               ("physics", ["العلوم الفيزيائية", "الفيزياء", "فيزياء"]),
               ("science", ["العلوم الطبيعية", "علوم الطبيعة", "علوم طبيعية", "التربية العلمية"]),
               ("arabic", ["اللغة العربية", "الأدب العربي"]),
               ("french", ["اللغة الفرنسية", "فرنسية"]),
               ("english", ["اللغة الإنجليزية", "اللغة الانجليزية", "إنجليزية", "انجليزية"]),
-              ("hisgeo", ["التاريخ والجغرافيا", "التاريخ و الجغرافيا"]),
+              ("hisgeo", ["التاريخ والجغرافيا", "التاريخ و الجغرافيا", "تاريخ جغرافيا", "تاريخ وجغرافيا"]),
               ("islamic", ["العلوم الإسلامية", "التربية الإسلامية", "التربية الاسلامية", "شريعة"]),
               ("philo", ["الفلسفة", "فلسفة"]),
               ("civics", ["التربية المدنية", "مدنية"]),
@@ -221,17 +221,18 @@ jobs:
               ("amazigh", ["اللغة الأمازيغية", "أمازيغية", "امازيغية"]),
               ("third_lang", ["اللغة الإيطالية", "اللغة الإسبانية", "اللغة الألمانية", "اسبانية", "المانية", "ايطالية"]),
               ("art", ["التربية التشكيلية", "التربية الموسيقية", "التربية الفنية"]),
+              ("math", ["الرياضيات", "موضوع الرياضيات", "تصحيح الرياضيات", "مادة الرياضيات", "اختبار الرياضيات"]),
           ]
 
           stream_rules = [
               ("tc_l", ["جذع مشترك آداب", "ج م آ", "ج.م.آ", "literary-1as"]),
               ("tc_st", ["جذع مشترك علوم", "ج م ع", "ج.م.ع", "science-1as"]),
-              ("lp", ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "شعب أدبية", "أدبي", "exams-literary", "tests-literary", "literature-philosophy", "آداب-وفلسفة", "lettres", "-lp-", "-lp/"]),
-              ("ge", ["تسيير واقتصاد", "تسيير و اقتصاد", "exams-management", "tests-management", "management-economics", "تسيير-واقتصاد", "management", "-ge-", "-ge/"]),
-              ("tm", ["تقني رياضي", "التقني الرياضي", "هندسة مدنية", "هندسة كهربائية", "هندسة ميكانيكية", "هندسة الطرائق", "technical-mathematics", "تقني-رياضي", "tech-math", "genie-", "-tm-", "-tm/"]),
-              ("le", ["لغات أجنبية", "لغات اجنبية", "إسبانية", "ألمانية", "إيطالية", "foreign-languages", "لغات-أجنبية", "langues", "espagnol", "allemand", "italien", "-le-", "-le/"]),
-              ("mt", ["شعبة رياضيات", "شعبة الرياضيات", "exams-math", "tests-math", "/mathematics/", "-mt-", "-mt/", "bac-math-"]),
-              ("se", ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "علوم-تجريبية", "/bac-20", "/sciences/", "-se/", "-se-", "-sci-", "-sc-"]),
+              ("lp", ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "شعب أدبية", "أدبي", "exams-literary", "tests-literary", "literature-philosophy", "lettres", "-lp-", "-lp/"]),
+              ("ge", ["تسيير واقتصاد", "تسيير و اقتصاد", "تسيير و إقتصاد", "تسيير وإقتصاد", "exams-management", "tests-management", "management-economics", "management", "-ge-", "-ge/"]),
+              ("tm", ["تقني رياضي", "التقني الرياضي", "هندسة مدنية", "هندسة كهربائية", "هندسة ميكانيكية", "هندسة الطرائق", "technical-mathematics", "tech-math", "genie-", "-tm-", "-tm/"]),
+              ("le", ["لغات أجنبية", "لغات اجنبية", "إسبانية", "ألمانية", "إيطالية", "foreign-languages", "langues", "espagnol", "allemand", "italien", "-le-", "-le/"]),
+              ("mt", ["شعبة رياضيات", "شعبة الرياضيات", "باك 20", "exams-math", "tests-math", "/mathematics/", "-mt-", "-mt/", "bac-math-"]),
+              ("se", ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "/bac-20", "/sciences/", "-se/", "-se-", "-sci-", "-sc-"]),
           ]
 
           def detect_trimester_strict(text, fallback_trim="t1"):
@@ -279,13 +280,14 @@ jobs:
               return fallback_cat
 
           def analyze_metadata(text, parent_meta=None):
-              t = text.lower()
+              t = urllib.parse.unquote(text).lower()
               for slogan in ["دروس وفروض واختبارات", "موقع الدراسة الجزائري"]:
                   t = t.replace(slogan, " ")
+              t_space = t.replace("-", " ")
 
               is_solution = any(
                   w in t
-                  for w in ["التصحيح فقط", "تصحيح موضوع", "_sol.", "-sol.", "corrige-", "correction-examen-", "correction-bac-", "correction-bem-", "-correction"]
+                  for w in ["التصحيح فقط", "تصحيح موضوع", "_sol.", "-sol.", "corrige-", "correction-examen-", "correction-bac-", "correction-bem-", "-correction", "/تصحيح-"]
               )
 
               has_trimester = any(
@@ -300,7 +302,7 @@ jobs:
 
               archive_type = None
               if not has_trimester and not (parent_meta and parent_meta.get("has_trimester")):
-                  if any(w in t for w in ["بكالوريا", "البكالوريا", "/bac-", "/bac/", "bac-solutions"]):
+                  if any(w in t for w in ["بكالوريا", "البكالوريا", "/bac-", "/bac/", "bac-solutions", "-باك-", "bacdz.net"]):
                       archive_type = "bac"
                   elif any(w in t for w in ["شهادة التعليم المتوسط", "البيام", "/bem-", "/bem/", "bem-solutions"]):
                       archive_type = "bem"
@@ -312,7 +314,7 @@ jobs:
 
               level = None
               for code, keys in level_rules:
-                  if any(k in t for k in keys):
+                  if any(k in t or k in t_space for k in keys):
                       level = code
                       break
 
@@ -338,21 +340,31 @@ jobs:
                           break
               if not subject:
                   for code, words in subject_text_rules:
-                      if any(w in t for w in words):
+                      if any(w in t_space for w in words):
                           subject = code
                           break
+              if not subject and ("رياضيات" in t_space):
+                  subject = "math"
               if not subject and parent_meta:
                   subject = parent_meta.get("subject")
 
               stream = parent_meta.get("stream") if parent_meta else None
-              for code, keys in stream_rules:
-                  if code == "se" and "/bac-20" in keys:
-                      if any(k in t for k in ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "علوم-تجريبية", "-se/", "-se-", "-sci-", "-sc-"]) or re.search(r'/bac-20\d\d/sciences/', t):
-                          stream = "se"
-                          break
-                  elif any(k in t for k in keys):
-                      stream = code
-                      break
+              if any(w in t_space for w in ["علوم تجريبية", "شعب علمية"]) or any(w in t for w in ["-se/", "-se-", "-sci-", "-sc-"]) or re.search(r'/bac-20\d\d/sciences/', t):
+                  stream = "se"
+              elif any(w in t_space for w in ["تقني رياضي", "هندسة مدنية", "هندسة كهربائية", "هندسة ميكانيكية", "هندسة الطرائق"]) or any(w in t for w in ["technical-mathematics", "tech-math", "genie-", "-tm-", "-tm/"]):
+                  stream = "tm"
+              elif any(w in t_space for w in ["تسيير واقتصاد", "تسيير و اقتصاد", "تسيير و إقتصاد", "تسيير وإقتصاد"]) or any(w in t for w in ["exams-management", "tests-management", "management-economics", "-ge-", "-ge/"]):
+                  stream = "ge"
+              elif any(w in t_space for w in ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "شعب أدبية"]) or any(w in t for w in ["exams-literary", "tests-literary", "literature-philosophy", "-lp-", "-lp/"]):
+                  stream = "lp"
+              elif any(w in t_space for w in ["لغات أجنبية", "لغات اجنبية", "اللغة الإسبانية", "اللغة الإيطالية", "اللغة الألمانية"]) or any(w in t for w in ["foreign-languages", "-le-", "-le/"]):
+                  stream = "le"
+              elif any(w in t_space for w in ["شعبة رياضيات", "شعبة الرياضيات"]) or any(w in t for w in ["exams-math", "tests-math", "/mathematics/", "-mt-", "-mt/", "bac-math-"]) or re.search(r'باك\s*20\d\d\s*رياضيات', t_space):
+                  stream = "mt"
+              elif any(w in t_space for w in ["جذع مشترك آداب", "ج م آ", "literary-1as"]):
+                  stream = "tc_l"
+              elif any(w in t_space for w in ["جذع مشترك علوم", "ج م ع", "science-1as"]):
+                  stream = "tc_st"
 
               if not stream and level in ["1as", "2as", "3as"]:
                   if subject in ["accounting", "economy", "law"]:
@@ -367,10 +379,10 @@ jobs:
                       stream = "se"
 
               fallback_t = parent_meta.get("trimester", "t1") if parent_meta else "t1"
-              trimester = detect_trimester_strict(t, fallback_trim=fallback_t)
+              trimester = detect_trimester_strict(t_space, fallback_trim=fallback_t)
 
               fallback_c = parent_meta.get("category", "exam") if parent_meta else "exam"
-              category = detect_category_strict(t, fallback_cat=fallback_c)
+              category = detect_category_strict(t_space, fallback_cat=fallback_c)
 
               return {
                   "skip": False,
@@ -421,6 +433,43 @@ jobs:
                   return f"https://drive.google.com/uc?export=download&id={gd_match.group(1)}"
               return None
 
+          def convert_soup_images_to_pdf_bytes(soup, page_url):
+              content_box = (
+                  soup.find("div", class_=re.compile(r"entry-content|post-content|article|main|sujet"))
+                  or soup
+              )
+              pil_imgs = []
+              for img in content_box.find_all("img"):
+                  src = img.get("data-src") or img.get("src") or ""
+                  if not src or any(
+                      skip in src.lower()
+                      for skip in ["logo", "avatar", "icon", "gravatar", "emoji", "banner", "ads", "button"]
+                  ):
+                      continue
+                  src = urllib.parse.urljoin(page_url, src)
+                  try:
+                      ir = requests.get(src, headers=headers, timeout=15)
+                      if ir.status_code == 200:
+                          im = Image.open(io.BytesIO(ir.content)).convert("RGB")
+                          w, h = im.size
+                          if w >= 380 and h >= 380:
+                              pil_imgs.append(im)
+                  except Exception:
+                      pass
+              if pil_imgs:
+                  buf = io.BytesIO()
+                  pil_imgs[0].save(
+                      buf,
+                      "PDF",
+                      resolution=100.0,
+                      save_all=True,
+                      append_images=pil_imgs[1:],
+                  )
+                  val = buf.getvalue()
+                  if len(val) >= 1500 and val[:4] == b"%PDF":
+                      return val
+              return None
+
           def extract_first_pdf_bytes_from_page(page_url):
               try:
                   r = requests.get(page_url, headers=headers, timeout=20)
@@ -445,6 +494,7 @@ jobs:
                       pr = requests.get(c_url, headers=headers, timeout=20)
                       if pr.status_code == 200 and pr.content[:4] == b"%PDF":
                           return pr.content
+                  return convert_soup_images_to_pdf_bytes(soup, page_url)
               except Exception:
                   pass
               return None
@@ -453,6 +503,7 @@ jobs:
               if not out_filepath or is_time_up():
                   return False
               try:
+                  page_url = urllib.parse.unquote(page_url)
                   is_archive_merged = "_merged.pdf" in out_filepath.lower()
 
                   r = requests.get(page_url, headers=headers, timeout=20)
@@ -467,6 +518,9 @@ jobs:
                   subject_pdfs = []
                   correction_pdfs = []
                   companion_correction_pages = []
+
+                  if "/موضوع-" in page_url and "/تصحيح-" not in page_url:
+                      companion_correction_pages.append(page_url.replace("/موضوع-", "/تصحيح-", 1))
 
                   if "/examen-" in page_url and "/correction-examen-" not in page_url:
                       auto_corr_url = page_url.replace("/examen-", "/correction-examen-", 1)
@@ -484,6 +538,9 @@ jobs:
                       if "-tamazigh-" in auto_corr_url:
                           companion_correction_pages.append(auto_corr_url.replace("-tamazigh-", "-tamazight-"))
 
+                  if "/eddirasa-bac-" in page_url and "/eddirasa-correction-bac-" not in page_url:
+                      companion_correction_pages.append(page_url.replace("/eddirasa-bac-", "/eddirasa-correction-bac-", 1))
+
                   if "/bem-" in page_url and "/correction-bem-" not in page_url and not page_url.rstrip("/").endswith("-correction"):
                       if "educationdz.com" in page_url:
                           companion_correction_pages.append(page_url.rstrip("/") + "-correction")
@@ -494,7 +551,7 @@ jobs:
                       tag_text = tag.get_text(" ", strip=True)
                       raw_href = tag.get("href") or tag.get("data-url") or tag.get("data-href") or ""
                       if raw_href and any(w in tag_text for w in ["تصحيح الموضوع", "عرض التصحيح", "الحل النموذجي", "تصحيح موضوع", "التصحيح"]):
-                          full_corr_page = urllib.parse.urljoin(page_url, raw_href.replace(r"\/", "/"))
+                          full_corr_page = urllib.parse.unquote(urllib.parse.urljoin(page_url, raw_href.replace(r"\/", "/")))
                           if not full_corr_page.lower().endswith(".pdf") and full_corr_page != page_url and full_corr_page not in companion_correction_pages:
                               companion_correction_pages.append(full_corr_page)
 
@@ -558,40 +615,17 @@ jobs:
                           if register_unique_pdf_bytes(final_pdf_bytes, out_filepath, allow_overwrite=is_archive_merged):
                               return True
 
-                  if not is_archive_merged:
-                      content_box = (
-                          soup.find("div", class_=re.compile(r"entry-content|post-content|article|main|sujet"))
-                          or soup
-                      )
-                      pil_imgs = []
-                      for img in content_box.find_all("img"):
-                          src = img.get("data-src") or img.get("src") or ""
-                          if not src or any(
-                              skip in src.lower()
-                              for skip in ["logo", "avatar", "icon", "gravatar", "emoji", "banner", "ads", "button"]
-                          ):
-                              continue
-                          src = urllib.parse.urljoin(page_url, src)
-                          try:
-                              ir = requests.get(src, headers=headers, timeout=15)
-                              if ir.status_code == 200:
-                                  im = Image.open(io.BytesIO(ir.content)).convert("RGB")
-                                  w, h = im.size
-                                  if w >= 380 and h >= 380:
-                                      pil_imgs.append(im)
-                          except Exception:
-                              pass
-
-                      if pil_imgs:
-                          buf = io.BytesIO()
-                          pil_imgs[0].save(
-                              buf,
-                              "PDF",
-                              resolution=100.0,
-                              save_all=True,
-                              append_images=pil_imgs[1:],
-                          )
-                          return register_unique_pdf_bytes(buf.getvalue(), out_filepath)
+                  img_pdf_bytes = convert_soup_images_to_pdf_bytes(soup, page_url)
+                  if img_pdf_bytes:
+                      if is_archive_merged:
+                          for comp_url in companion_correction_pages:
+                              corr_bytes = extract_first_pdf_bytes_from_page(comp_url)
+                              if corr_bytes:
+                                  merged_img_pdf = merge_two_pdfs_bytes(img_pdf_bytes, corr_bytes)
+                                  if merged_img_pdf and register_unique_pdf_bytes(merged_img_pdf, out_filepath, allow_overwrite=True):
+                                      return True
+                          return False
+                      return register_unique_pdf_bytes(img_pdf_bytes, out_filepath)
 
               except Exception:
                   pass
@@ -602,8 +636,13 @@ jobs:
               if saved_total >= max_to_save or is_time_up():
                   return False
 
-              if "/correction-examen-" in url:
+              url = urllib.parse.unquote(url)
+              if "/تصحيح-" in url:
+                  url = url.replace("/تصحيح-", "/موضوع-", 1)
+              elif "/correction-examen-" in url:
                   url = url.replace("/correction-examen-", "/examen-", 1)
+              elif "/eddirasa-correction-bac-" in url:
+                  url = url.replace("/eddirasa-correction-bac-", "/eddirasa-bac-", 1)
               elif "/correction-bac-" in url:
                   url = url.replace("/correction-bac-", "/bac-", 1)
                   url = url.replace("-sci-english-", "-se-english-").replace("-tamazight-", "-tamazigh-")
@@ -616,7 +655,7 @@ jobs:
               if clean_hint in ["الحل", "التصحيح", "عرض التصحيح", "تحميل التصحيح"]:
                   return False
 
-              combined = title_hint + " " + urllib.parse.unquote(url)
+              combined = title_hint + " " + url
               meta = analyze_metadata(combined, parent_meta=parent_meta)
 
               if not meta.get("subject"):
@@ -655,13 +694,17 @@ jobs:
               if saved_total >= max_to_save or is_time_up():
                   return
 
-              if any(k in hub_url for k in ["/examen-", "/correction-examen-", "/bac-", "/correction-bac-", "/bem-", "/correction-bem-"]) and not any(h in hub_url for h in ["bac-solutions", "bem-solutions"]):
-                  process_single_article_url(hub_url, "", None)
+              unquoted_hub = urllib.parse.unquote(hub_url)
+              if (
+                  any(k in unquoted_hub for k in ["/examen-", "/correction-examen-", "/bac-", "/correction-bac-", "/eddirasa-bac-", "/eddirasa-correction-bac-", "/bem-", "/correction-bem-", "/موضوع-", "/تصحيح-"])
+                  and not any(h in unquoted_hub for h in ["bac-solutions", "bem-solutions"])
+              ):
+                  process_single_article_url(unquoted_hub, "", None)
                   return
 
-              print("Crawling URL:", hub_url)
+              print("Crawling URL:", unquoted_hub)
               try:
-                  r = requests.get(hub_url, headers=headers, timeout=22)
+                  r = requests.get(unquoted_hub, headers=headers, timeout=22)
                   if r.status_code != 200:
                       return
 
@@ -669,7 +712,7 @@ jobs:
                   page_title = soup.title.string if soup.title else ""
                   h1_txt = " ".join([h.get_text(" ", strip=True) for h in soup.find_all(["h1"])])
 
-                  parent_context = urllib.parse.unquote(hub_url) + " " + page_title + " " + h1_txt
+                  parent_context = unquoted_hub + " " + page_title + " " + h1_txt
                   parent_meta = analyze_metadata(parent_context)
                   is_bac_or_bem_hub = parent_meta.get("archive_type") in ["bac", "bem"]
 
@@ -689,8 +732,8 @@ jobs:
                       ):
                           continue
 
-                      full_u = urllib.parse.urljoin(hub_url, href.replace(r"\/", "/"))
-                      if full_u.rstrip("/") == hub_url.rstrip("/") or full_u in seen_sub_urls:
+                      full_u = urllib.parse.unquote(urllib.parse.urljoin(unquoted_hub, href.replace(r"\/", "/")))
+                      if full_u.rstrip("/") == unquoted_hub.rstrip("/") or full_u in seen_sub_urls:
                           continue
 
                       if is_bac_or_bem_hub and (full_u.lower().endswith(".pdf") or txt == "الموضوع"):
@@ -701,13 +744,13 @@ jobs:
                           card_box = a.find_parent(["li", "div", "tr", "article"]) or a.parent
                           context_txt = card_box.get_text(" ", strip=True)
 
-                      sub_trim = detect_trimester_strict(urllib.parse.unquote(full_u) + " " + context_txt, fallback_trim=parent_meta["trimester"])
+                      sub_trim = detect_trimester_strict(full_u + " " + context_txt, fallback_trim=parent_meta["trimester"])
                       if parent_meta.get("has_trimester") and sub_trim != parent_meta["trimester"] and "رقم" not in context_txt:
                           continue
 
-                      is_child_path = full_u.startswith(hub_url.rstrip("/"))
+                      is_child_path = full_u.startswith(unquoted_hub.rstrip("/"))
                       has_study_word = any(
-                          w in (context_txt + " " + urllib.parse.unquote(full_u)).lower()
+                          w in (context_txt + " " + full_u).lower()
                           for w in [
                               "اختبار", "إختبار", "فرض", "درس", "ملخص", "مذكرة", "موضوع", "نموذج", "رقم",
                               "كتاب", "بكالوريا", "شهادة", "exam", "test", "devoir", "sujet", ".pdf", "file="
@@ -729,10 +772,10 @@ jobs:
                           for _ in as_completed(futures):
                               pass
                   else:
-                      process_single_article_url(hub_url, page_title, parent_meta)
+                      process_single_article_url(unquoted_hub, page_title, parent_meta)
 
               except Exception as e:
-                  print("Error crawling URL:", hub_url, e)
+                  print("Error crawling URL:", unquoted_hub, e)
 
           user_urls = []
           extra_u = os.environ.get("EXTRA_URL", "").strip()
