@@ -36,7 +36,7 @@ jobs:
       - name: Install Scraper and PDF Libraries
         run: pip install requests beautifulsoup4 pillow lxml pypdf
 
-      - name: Harvest Up To 10000 PDFs and Merge BAC, BEM, and 5eme With Corrections
+      - name: Harvest Up To 10000 PDFs and Distribute Shared Subjects Across Branches
         env:
           MAX_FILES: ${{ github.event.inputs.max_files_per_run }}
           EXTRA_URL: ${{ github.event.inputs.extra_url }}
@@ -46,6 +46,7 @@ jobs:
           import re
           import io
           import time
+          import shutil
           import hashlib
           import threading
           import urllib.parse
@@ -68,8 +69,16 @@ jobs:
           subprocess.run(["git", "config", "user.name", "StudyDZ-Harvester"], check=False)
           subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
 
-          content_hashes = set()
-          seen_canonical_names = set()
+          # Track (branch_or_scope, md5_hex) so the same merged PDF CAN be placed into multiple shared branches
+          scoped_hashes = set()
+          seen_paths = set()
+
+          def get_scope_from_path(filepath):
+              bn = os.path.basename(filepath).lower()
+              for st in ["_tc_st_", "_tc_l_", "_se_", "_mt_", "_tm_", "_ge_", "_lp_", "_le_", "_tc_st.", "_tc_l.", "_se.", "_mt.", "_tm.", "_ge.", "_lp.", "_le."]:
+                  if st in bn:
+                      return st.strip("_.")
+              return "general"
 
           for root, _, fnames in os.walk("files"):
               for fn in sorted(fnames):
@@ -88,25 +97,14 @@ jobs:
                           raw = pf.read()
                       if len(raw) >= 1500 and raw[:4] == b"%PDF":
                           md5_h = hashlib.md5(raw).hexdigest()
-                          content_hashes.add(md5_h)
-                          seen_canonical_names.add(lower_fn)
+                          scope = get_scope_from_path(p)
+                          scoped_hashes.add((scope, md5_h))
+                          seen_paths.add(p.replace("\\", "/"))
                   except Exception:
                       pass
 
           lock = threading.Lock()
           saved_total = 0
-
-          try:
-              max_to_save = int(os.environ.get("MAX_FILES", "10000").strip() or "10000")
-          except Exception:
-              max_to_save = 10000
-          if max_to_save < 10000:
-              max_to_save = 10000
-
-          headers = {
-              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
-              "Referer": "https://eddirasa.com/"
-          }
 
           def write_index_and_push(msg):
               with lock:
@@ -123,6 +121,103 @@ jobs:
                       subprocess.run(["git", "commit", "-m", msg], check=False)
                       subprocess.run(["git", "pull", "--no-rebase", "-X", "ours"], check=False)
                       subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
+
+          # =====================================================================
+          # STEP 0: BACKFILL EXISTING SHARED SUBJECTS ACROSS ALL SIBLING BRANCHES
+          # =====================================================================
+          def get_sibling_streams(level, subject, current_stream):
+              all_6 = ["se", "mt", "tm", "ge", "lp", "le"]
+              sci_4 = ["se", "mt", "tm", "ge"]
+              lit_2 = ["lp", "le"]
+
+              if level in ["bac", "3as"]:
+                  if subject in ["islamic", "amazigh"]:
+                      return all_6
+                  if subject in ["arabic", "french", "english", "hisgeo"] and current_stream in sci_4:
+                      return sci_4
+                  if subject == "hisgeo" and current_stream in lit_2:
+                      return lit_2
+                  if subject == "philo":
+                      if current_stream in ["se", "mt"]:
+                          return ["se", "mt"]
+                      if current_stream in ["tm", "ge"]:
+                          return ["tm", "ge"]
+                  if subject == "physics" and current_stream in ["mt", "tm"]:
+                      return ["mt", "tm"]
+              elif level == "2as":
+                  if subject in ["islamic", "amazigh"]:
+                      return all_6
+                  if subject in ["arabic", "french", "english", "hisgeo"]:
+                      return lit_2 if current_stream in lit_2 else sci_4
+                  if subject in ["math", "physics"] and current_stream in ["se", "mt", "tm"]:
+                      return ["se", "mt", "tm"]
+                  if subject == "science" and current_stream in ["se", "mt"]:
+                      return ["se", "mt"]
+                  if subject == "philo" and current_stream in lit_2:
+                      return lit_2
+              elif level == "1as":
+                  if subject != "engineering" and current_stream in ["tc_st", "tc_l"]:
+                      return ["tc_st", "tc_l"]
+              return [current_stream] if current_stream else []
+
+          backfilled_count = 0
+          for root, _, fnames in os.walk("files"):
+              for fn in sorted(fnames):
+                  if not fn.lower().endswith(".pdf"):
+                      continue
+                  src_path = os.path.join(root, fn).replace("\\", "/")
+                  m_bac = re.match(r'^bac_(\d{4})_([a-z0-9_]+)_(se|mt|tm|ge|lp|le)_merged\.pdf$', fn.lower())
+                  if m_bac:
+                      yr, subj, st = m_bac.group(1), m_bac.group(2), m_bac.group(3)
+                      for sib in get_sibling_streams("bac", subj, st):
+                          if sib == st:
+                              continue
+                          dst_path = os.path.join(root, f"bac_{yr}_{subj}_{sib}_merged.pdf").replace("\\", "/")
+                          if not os.path.exists(dst_path):
+                              try:
+                                  shutil.copy2(src_path, dst_path)
+                                  with open(dst_path, "rb") as df:
+                                      d_md5 = hashlib.md5(df.read()).hexdigest()
+                                  scoped_hashes.add((sib, d_md5))
+                                  seen_paths.add(dst_path)
+                                  backfilled_count += 1
+                              except Exception:
+                                  pass
+                      continue
+
+                  m_hs = re.match(r'^(1as|2as|3as)_([a-z0-9_]+)_(tc_st|tc_l|se|mt|tm|ge|lp|le)_(.+\.pdf)$', fn.lower())
+                  if m_hs:
+                      lvl, subj, st, rest = m_hs.group(1), m_hs.group(2), m_hs.group(3), m_hs.group(4)
+                      for sib in get_sibling_streams(lvl, subj, st):
+                          if sib == st:
+                              continue
+                          dst_path = os.path.join(root, f"{lvl}_{subj}_{sib}_{rest}").replace("\\", "/")
+                          if not os.path.exists(dst_path):
+                              try:
+                                  shutil.copy2(src_path, dst_path)
+                                  with open(dst_path, "rb") as df:
+                                      d_md5 = hashlib.md5(df.read()).hexdigest()
+                                  scoped_hashes.add((sib, d_md5))
+                                  seen_paths.add(dst_path)
+                                  backfilled_count += 1
+                              except Exception:
+                                  pass
+
+          if backfilled_count > 0:
+              print(f"Distributed {backfilled_count} existing shared PDFs across sibling branches.")
+              write_index_and_push(f"Distributed {backfilled_count} shared subject PDFs across branches")
+
+          try:
+              max_to_save = int(os.environ.get("MAX_FILES", "10000").strip() or "10000")
+          except Exception:
+              max_to_save = 10000
+          if max_to_save < 10000:
+              max_to_save = 10000
+
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+              "Referer": "https://eddirasa.com/"
+          }
 
           def url_hash(u):
               return hashlib.md5(urllib.parse.unquote(u).strip().encode("utf-8")).hexdigest()[:12]
@@ -147,24 +242,24 @@ jobs:
               if not out_filepath or not raw_bytes or len(raw_bytes) < 1500 or raw_bytes[:4] != b"%PDF":
                   return False
               md5_hex = hashlib.md5(raw_bytes).hexdigest()
-              base_name = os.path.basename(out_filepath).lower()
+              norm_path = out_filepath.replace("\\", "/")
+              scope = get_scope_from_path(norm_path)
 
               with lock:
-                  if md5_hex in content_hashes:
+                  if (scope, md5_hex) in scoped_hashes:
                       return False
-                  if not allow_overwrite and (base_name in seen_canonical_names or os.path.exists(out_filepath)):
-                      stem, ext = os.path.splitext(out_filepath)
-                      out_filepath = f"{stem}_{md5_hex[:4]}{ext}"
-                      base_name = os.path.basename(out_filepath).lower()
+                  if not allow_overwrite and (norm_path in seen_paths or os.path.exists(norm_path)):
+                      stem, ext = os.path.splitext(norm_path)
+                      norm_path = f"{stem}_{md5_hex[:4]}{ext}"
 
-                  os.makedirs(os.path.dirname(out_filepath), exist_ok=True)
-                  with open(out_filepath, "wb") as f:
+                  os.makedirs(os.path.dirname(norm_path), exist_ok=True)
+                  with open(norm_path, "wb") as f:
                       f.write(raw_bytes)
-                  content_hashes.add(md5_hex)
-                  seen_canonical_names.add(base_name)
+                  scoped_hashes.add((scope, md5_hex))
+                  seen_paths.add(norm_path)
                   with open(content_hashes_file, "a", encoding="utf-8") as cf:
-                      cf.write(md5_hex + "\n")
-              print("Saved unique PDF:", out_filepath)
+                      cf.write(f"{scope}:{md5_hex}\n")
+              print("Saved unique PDF:", norm_path)
               return True
 
           level_rules = [
@@ -224,17 +319,6 @@ jobs:
               ("math", ["الرياضيات", "موضوع الرياضيات", "تصحيح الرياضيات", "مادة الرياضيات", "اختبار الرياضيات"]),
           ]
 
-          stream_rules = [
-              ("tc_l", ["جذع مشترك آداب", "ج م آ", "ج.م.آ", "literary-1as"]),
-              ("tc_st", ["جذع مشترك علوم", "ج م ع", "ج.م.ع", "science-1as"]),
-              ("lp", ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "شعب أدبية", "أدبي", "exams-literary", "tests-literary", "literature-philosophy", "lettres", "-lp-", "-lp/"]),
-              ("ge", ["تسيير واقتصاد", "تسيير و اقتصاد", "تسيير و إقتصاد", "تسيير وإقتصاد", "exams-management", "tests-management", "management-economics", "management", "-ge-", "-ge/"]),
-              ("tm", ["تقني رياضي", "التقني الرياضي", "هندسة مدنية", "هندسة كهربائية", "هندسة ميكانيكية", "هندسة الطرائق", "technical-mathematics", "tech-math", "genie-", "-tm-", "-tm/"]),
-              ("le", ["لغات أجنبية", "لغات اجنبية", "إسبانية", "ألمانية", "إيطالية", "foreign-languages", "langues", "espagnol", "allemand", "italien", "-le-", "-le/"]),
-              ("mt", ["شعبة رياضيات", "شعبة الرياضيات", "باك 20", "exams-math", "tests-math", "/mathematics/", "-mt-", "-mt/", "bac-math-"]),
-              ("se", ["علوم تجريبية", "العلوم التجريبية", "شعب علمية", "علمي", "exams-science", "tests-science", "/bac-20", "/sciences/", "-se/", "-se-", "-sci-", "-sc-"]),
-          ]
-
           def detect_trimester_strict(text, fallback_trim="t1"):
               t = text.lower()
               if any(w in t for w in ["term-3", "trimestre-3", "3-trimestre", "3eme-trimestre", "_t3", "-t3", "/t3/"]):
@@ -278,6 +362,98 @@ jobs:
               if any(w in t for w in ["اختبار", "إختبار", "امتحان"]):
                   return "exam"
               return fallback_cat
+
+          def detect_all_matching_streams(t, t_space, level, subject, archive_type, parent_streams=None):
+              all_6 = ["se", "mt", "tm", "ge", "lp", "le"]
+              sci_4 = ["se", "mt", "tm", "ge"]
+              lit_2 = ["lp", "le"]
+
+              if level not in ["1as", "2as", "3as"] and archive_type != "bac":
+                  return []
+
+              if level == "1as":
+                  has_st = any(w in t_space for w in ["جذع مشترك علوم", "ج م ع"]) or ("science-1as" in t) or (subject == "engineering")
+                  has_l = any(w in t_space for w in ["جذع مشترك آداب", "ج م آ"]) or ("literary-1as" in t)
+                  if has_st and not has_l:
+                      return ["tc_st"]
+                  if has_l and not has_st:
+                      return ["tc_l"]
+                  if parent_streams:
+                      return parent_streams
+                  return ["tc_st"] if subject == "engineering" else ["tc_st", "tc_l"]
+
+              # Exclusive branch subjects
+              if subject == "engineering":
+                  return ["tm"]
+              if subject in ["accounting", "economy", "law"]:
+                  return ["ge"]
+              if subject == "third_lang":
+                  return ["le"]
+
+              # Subjects unified across ALL 6 branches
+              if subject in ["islamic", "amazigh"]:
+                  return all_6
+
+              explicit = []
+              if any(w in t_space for w in ["علوم تجريبية", "شعبة علوم تجريبية"]) or any(w in t for w in ["-se/", "-se-", "-se"]) or re.search(r'/bac-20\d\d/sciences/', t):
+                  explicit.append("se")
+              if any(w in t_space for w in ["شعبة رياضيات", "شعبة الرياضيات"]) or any(w in t for w in ["exams-math", "tests-math", "/mathematics/", "-mt-", "-mt/", "bac-math-"]) or re.search(r'باك\s*20\d\d\s*رياضيات', t_space):
+                  explicit.append("mt")
+              if any(w in t_space for w in ["تقني رياضي", "التقني الرياضي"]) or any(w in t for w in ["technical-mathematics", "tech-math", "-tm-", "-tm/"]):
+                  explicit.append("tm")
+              if any(w in t_space for w in ["تسيير واقتصاد", "تسيير و اقتصاد", "تسيير و إقتصاد", "تسيير وإقتصاد"]) or any(w in t for w in ["exams-management", "tests-management", "management-economics", "management", "-ge-", "-ge/"]):
+                  explicit.append("ge")
+              if any(w in t_space for w in ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة"]) or any(w in t for w in ["exams-literary", "tests-literary", "literature-philosophy", "-lp-", "-lp/"]):
+                  explicit.append("lp")
+              if any(w in t_space for w in ["لغات أجنبية", "لغات اجنبية"]) or any(w in t for w in ["foreign-languages", "-le-", "-le/"]):
+                  explicit.append("le")
+
+              is_all_sci = any(w in t_space for w in ["شعب علمية", "الشعب العلمية"]) or any(w in t for w in ["-sci-", "-sc-", "exams-science", "tests-science"])
+              is_all_lit = any(w in t_space for w in ["شعب أدبية", "الشعب الأدبية"])
+              is_all_branches = any(w in t_space for w in ["كل الشعب", "جميع الشعب"])
+
+              if is_all_branches:
+                  return all_6
+
+              # Expand shared subjects to ALL branches that share the same official exam
+              if subject in ["arabic", "french", "english", "hisgeo"]:
+                  if any(s in explicit for s in lit_2) or is_all_lit:
+                      if subject == "hisgeo":
+                          return lit_2
+                      return explicit if explicit else lit_2
+                  if any(s in explicit for s in sci_4) or is_all_sci:
+                      return sci_4
+
+              if subject == "philo":
+                  if any(s in explicit for s in ["se", "mt"]) and not any(s in explicit for s in ["tm", "ge"]):
+                      return ["se", "mt"]
+                  if any(s in explicit for s in ["tm", "ge"]) and not any(s in explicit for s in ["se", "mt"]):
+                      return ["tm", "ge"]
+                  if is_all_sci:
+                      return sci_4
+                  if explicit:
+                      return explicit
+                  if level == "2as":
+                      return lit_2
+
+              if subject == "physics":
+                  if any(s in explicit for s in ["mt", "tm"]) and "se" not in explicit:
+                      return ["mt", "tm"]
+                  if level == "2as" and (is_all_sci or not explicit):
+                      return ["se", "mt", "tm"]
+
+              if subject == "science" and level == "2as" and (is_all_sci or not explicit):
+                  return ["se", "mt"]
+
+              if explicit:
+                  return explicit
+              if is_all_sci:
+                  return ["se", "mt", "tm"] if (level == "2as" and subject in ["math", "physics"]) else sci_4
+              if is_all_lit:
+                  return lit_2
+              if parent_streams:
+                  return parent_streams
+              return ["se"]
 
           def analyze_metadata(text, parent_meta=None):
               t = urllib.parse.unquote(text).lower()
@@ -348,35 +524,8 @@ jobs:
               if not subject and parent_meta:
                   subject = parent_meta.get("subject")
 
-              stream = parent_meta.get("stream") if parent_meta else None
-              if any(w in t_space for w in ["علوم تجريبية", "شعب علمية"]) or any(w in t for w in ["-se/", "-se-", "-sci-", "-sc-"]) or re.search(r'/bac-20\d\d/sciences/', t):
-                  stream = "se"
-              elif any(w in t_space for w in ["تقني رياضي", "هندسة مدنية", "هندسة كهربائية", "هندسة ميكانيكية", "هندسة الطرائق"]) or any(w in t for w in ["technical-mathematics", "tech-math", "genie-", "-tm-", "-tm/"]):
-                  stream = "tm"
-              elif any(w in t_space for w in ["تسيير واقتصاد", "تسيير و اقتصاد", "تسيير و إقتصاد", "تسيير وإقتصاد"]) or any(w in t for w in ["exams-management", "tests-management", "management-economics", "-ge-", "-ge/"]):
-                  stream = "ge"
-              elif any(w in t_space for w in ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "شعب أدبية"]) or any(w in t for w in ["exams-literary", "tests-literary", "literature-philosophy", "-lp-", "-lp/"]):
-                  stream = "lp"
-              elif any(w in t_space for w in ["لغات أجنبية", "لغات اجنبية", "اللغة الإسبانية", "اللغة الإيطالية", "اللغة الألمانية"]) or any(w in t for w in ["foreign-languages", "-le-", "-le/"]):
-                  stream = "le"
-              elif any(w in t_space for w in ["شعبة رياضيات", "شعبة الرياضيات"]) or any(w in t for w in ["exams-math", "tests-math", "/mathematics/", "-mt-", "-mt/", "bac-math-"]) or re.search(r'باك\s*20\d\d\s*رياضيات', t_space):
-                  stream = "mt"
-              elif any(w in t_space for w in ["جذع مشترك آداب", "ج م آ", "literary-1as"]):
-                  stream = "tc_l"
-              elif any(w in t_space for w in ["جذع مشترك علوم", "ج م ع", "science-1as"]):
-                  stream = "tc_st"
-
-              if not stream and level in ["1as", "2as", "3as"]:
-                  if subject in ["accounting", "economy", "law"]:
-                      stream = "ge"
-                  elif subject == "engineering":
-                      stream = "tc_st" if level == "1as" else "tm"
-                  elif subject == "third_lang":
-                      stream = "le"
-                  elif level == "1as":
-                      stream = "tc_st"
-                  else:
-                      stream = "se"
+              parent_streams = parent_meta.get("streams") if parent_meta else None
+              streams = detect_all_matching_streams(t, t_space, level, subject, archive_type, parent_streams=parent_streams)
 
               fallback_t = parent_meta.get("trimester", "t1") if parent_meta else "t1"
               trimester = detect_trimester_strict(t_space, fallback_trim=fallback_t)
@@ -392,29 +541,41 @@ jobs:
                   "archive_type": archive_type,
                   "level": level,
                   "subject": subject,
-                  "stream": stream,
+                  "streams": streams,
                   "trimester": trimester,
                   "category": category,
               }
 
-          def build_filepath(meta, unique_tag=""):
+          def build_filepaths(meta, unique_tag=""):
               subj = meta["subject"] or "math"
+              paths = []
+
               if meta["archive_type"] and meta["year"]:
                   folder = os.path.join("files", meta["archive_type"])
                   os.makedirs(folder, exist_ok=True)
                   if meta["archive_type"] == "bac":
-                      st = meta.get("stream") or "se"
-                      return os.path.join(folder, f"bac_{meta['year']}_{subj}_{st}_merged.pdf")
-                  return os.path.join(folder, f"{meta['archive_type']}_{meta['year']}_{subj}_merged.pdf")
+                      target_streams = meta.get("streams") or ["se"]
+                      for st in target_streams:
+                          paths.append(os.path.join(folder, f"bac_{meta['year']}_{subj}_{st}_merged.pdf").replace("\\", "/"))
+                      return paths
+                  return [os.path.join(folder, f"{meta['archive_type']}_{meta['year']}_{subj}_merged.pdf").replace("\\", "/")]
 
-              stream_part = f"_{meta['stream']}" if (meta["level"] in ["1as", "2as", "3as"] and meta.get("stream")) else ""
               sfx = f"_{unique_tag}" if unique_tag else ""
               folder = os.path.join("files", meta["level"])
               os.makedirs(folder, exist_ok=True)
-              if meta["category"] == "book":
-                  return os.path.join(folder, f"{meta['level']}_{subj}{stream_part}_book{sfx}.pdf")
 
-              return os.path.join(folder, f"{meta['level']}_{subj}{stream_part}_{meta['trimester']}_{meta['category']}{sfx}.pdf")
+              if meta["level"] in ["1as", "2as", "3as"]:
+                  target_streams = meta.get("streams") or (["tc_st"] if meta["level"] == "1as" else ["se"])
+                  for st in target_streams:
+                      if meta["category"] == "book":
+                          paths.append(os.path.join(folder, f"{meta['level']}_{subj}_{st}_book{sfx}.pdf").replace("\\", "/"))
+                      else:
+                          paths.append(os.path.join(folder, f"{meta['level']}_{subj}_{st}_{meta['trimester']}_{meta['category']}{sfx}.pdf").replace("\\", "/"))
+                  return paths
+
+              if meta["category"] == "book":
+                  return [os.path.join(folder, f"{meta['level']}_{subj}_book{sfx}.pdf").replace("\\", "/")]
+              return [os.path.join(folder, f"{meta['level']}_{subj}_{meta['trimester']}_{meta['category']}{sfx}.pdf").replace("\\", "/")]
 
           def extract_direct_pdf_url(raw_link, base_url):
               if not raw_link or raw_link.startswith("#") or raw_link.startswith("javascript"):
@@ -499,20 +660,27 @@ jobs:
                   pass
               return None
 
-          def download_or_convert_to_pdf(page_url, out_filepath):
-              if not out_filepath or is_time_up():
-                  return False
+          def save_bytes_to_all_targets(pdf_bytes, target_paths, allow_overwrite=False):
+              saved_count = 0
+              for tp in target_paths:
+                  if register_unique_pdf_bytes(pdf_bytes, tp, allow_overwrite=allow_overwrite):
+                      saved_count += 1
+              return saved_count
+
+          def download_or_convert_to_pdfs(page_url, out_filepaths):
+              if not out_filepaths or is_time_up():
+                  return 0
               try:
                   page_url = urllib.parse.unquote(page_url)
-                  is_archive_merged = "_merged.pdf" in out_filepath.lower()
+                  is_archive_merged = any("_merged.pdf" in p.lower() for p in out_filepaths)
 
                   r = requests.get(page_url, headers=headers, timeout=20)
                   if r.status_code != 200:
-                      return False
+                      return 0
                   if r.content[:4] == b"%PDF":
                       if is_archive_merged:
-                          return False
-                      return register_unique_pdf_bytes(r.content, out_filepath)
+                          return 0
+                      return save_bytes_to_all_targets(r.content, out_filepaths)
 
                   soup = BeautifulSoup(r.text, "html.parser")
                   subject_pdfs = []
@@ -612,8 +780,9 @@ jobs:
                           if is_archive_merged and not merged_done:
                               continue
 
-                          if register_unique_pdf_bytes(final_pdf_bytes, out_filepath, allow_overwrite=is_archive_merged):
-                              return True
+                          cnt = save_bytes_to_all_targets(final_pdf_bytes, out_filepaths, allow_overwrite=is_archive_merged)
+                          if cnt > 0:
+                              return cnt
 
                   img_pdf_bytes = convert_soup_images_to_pdf_bytes(soup, page_url)
                   if img_pdf_bytes:
@@ -622,14 +791,16 @@ jobs:
                               corr_bytes = extract_first_pdf_bytes_from_page(comp_url)
                               if corr_bytes:
                                   merged_img_pdf = merge_two_pdfs_bytes(img_pdf_bytes, corr_bytes)
-                                  if merged_img_pdf and register_unique_pdf_bytes(merged_img_pdf, out_filepath, allow_overwrite=True):
-                                      return True
-                          return False
-                      return register_unique_pdf_bytes(img_pdf_bytes, out_filepath)
+                                  if merged_img_pdf:
+                                      cnt = save_bytes_to_all_targets(merged_img_pdf, out_filepaths, allow_overwrite=True)
+                                      if cnt > 0:
+                                          return cnt
+                          return 0
+                      return save_bytes_to_all_targets(img_pdf_bytes, out_filepaths)
 
               except Exception:
                   pass
-              return False
+              return 0
 
           def process_single_article_url(url, title_hint="", parent_meta=None):
               global saved_total
@@ -676,18 +847,22 @@ jobs:
               num_match = re.search(r'رقم\s*(\d+)', title_hint)
               short_tag = num_match.group(1) if num_match else url_hash(url)[:5]
 
-              out_p = build_filepath(meta, short_tag)
-              if not out_p or os.path.exists(out_p):
+              out_paths = build_filepaths(meta, short_tag)
+              missing_paths = [p for p in out_paths if not os.path.exists(p)]
+              if not missing_paths:
                   return False
 
-              ok = download_or_convert_to_pdf(url, out_p)
-              if ok:
+              added_now = download_or_convert_to_pdfs(url, missing_paths)
+              if added_now > 0:
                   with lock:
-                      saved_total += 1
+                      prev_batch = saved_total // 25
+                      saved_total += added_now
+                      new_batch = saved_total // 25
                       curr = saved_total
-                  if curr % 25 == 0:
+                  if new_batch > prev_batch:
                       write_index_and_push(f"Imported batch: +{curr} unique PDFs")
-              return ok
+                  return True
+              return False
 
           def crawl_hub_url(hub_url):
               global saved_total
