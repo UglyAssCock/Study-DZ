@@ -15219,6 +15219,8 @@ files/3as/3as_physics_se_t3_exam_96.pdf
 files/3as/3as_physics_se_t3_exam_97.pdf
 files/3as/3as_physics_se_t3_exam_98.pdf
 files/3as/3as_physics_se_t3_exam_99.pdf
+files/3as/3as_physics_tm_t1_exam_29064.pdf
+files/3as/3as_physics_tm_t1_exam_ccc74.pdf
 files/3as/3as_science_se_book_9944c.pdf
 files/3as/3as_science_se_book_d5299.pdf
 files/3as/3as_science_se_book_ea32e.pdf
