@@ -29502,6 +29502,7 @@ files/bac/bac_2010_philo_tm_merged.pdf
 files/bac/bac_2010_physics_mt_merged.pdf
 files/bac/bac_2010_physics_se_merged.pdf
 files/bac/bac_2010_physics_tm_merged.pdf
+files/bac/bac_2010_science_mt_merged.pdf
 files/bac/bac_2010_science_se_merged.pdf
 files/bac/bac_2010_third_lang_le_merged.pdf
 files/bac/bac_2011_accounting_ge_merged.pdf
@@ -29559,6 +29560,7 @@ files/bac/bac_2011_philo_tm_merged.pdf
 files/bac/bac_2011_physics_mt_merged.pdf
 files/bac/bac_2011_physics_se_merged.pdf
 files/bac/bac_2011_physics_tm_merged.pdf
+files/bac/bac_2011_science_mt_merged.pdf
 files/bac/bac_2011_science_se_merged.pdf
 files/bac/bac_2011_third_lang_le_merged.pdf
 files/bac/bac_2012_accounting_ge_merged.pdf
@@ -29616,6 +29618,7 @@ files/bac/bac_2012_philo_tm_merged.pdf
 files/bac/bac_2012_physics_mt_merged.pdf
 files/bac/bac_2012_physics_se_merged.pdf
 files/bac/bac_2012_physics_tm_merged.pdf
+files/bac/bac_2012_science_mt_merged.pdf
 files/bac/bac_2012_science_se_merged.pdf
 files/bac/bac_2012_third_lang_le_merged.pdf
 files/bac/bac_2013_accounting_ge_merged.pdf
@@ -29672,6 +29675,7 @@ files/bac/bac_2013_philo_tm_merged.pdf
 files/bac/bac_2013_physics_mt_merged.pdf
 files/bac/bac_2013_physics_se_merged.pdf
 files/bac/bac_2013_physics_tm_merged.pdf
+files/bac/bac_2013_science_mt_merged.pdf
 files/bac/bac_2013_science_se_merged.pdf
 files/bac/bac_2013_third_lang_le_merged.pdf
 files/bac/bac_2014_accounting_ge_merged.pdf
@@ -29727,6 +29731,7 @@ files/bac/bac_2014_philo_se_merged.pdf
 files/bac/bac_2014_physics_mt_merged.pdf
 files/bac/bac_2014_physics_se_merged.pdf
 files/bac/bac_2014_physics_tm_merged.pdf
+files/bac/bac_2014_science_mt_merged.pdf
 files/bac/bac_2014_science_se_merged.pdf
 files/bac/bac_2014_third_lang_le_merged.pdf
 files/bac/bac_2015_accounting_ge_merged.pdf
@@ -29782,6 +29787,7 @@ files/bac/bac_2015_philo_se_merged.pdf
 files/bac/bac_2015_physics_mt_merged.pdf
 files/bac/bac_2015_physics_se_merged.pdf
 files/bac/bac_2015_physics_tm_merged.pdf
+files/bac/bac_2015_science_mt_merged.pdf
 files/bac/bac_2015_science_se_merged.pdf
 files/bac/bac_2015_third_lang_le_merged.pdf
 files/bac/bac_2016_accounting_ge_merged.pdf
@@ -29838,6 +29844,7 @@ files/bac/bac_2016_philo_tm_merged.pdf
 files/bac/bac_2016_physics_mt_merged.pdf
 files/bac/bac_2016_physics_se_merged.pdf
 files/bac/bac_2016_physics_tm_merged.pdf
+files/bac/bac_2016_science_mt_merged.pdf
 files/bac/bac_2016_science_se_merged.pdf
 files/bac/bac_2016_third_lang_le_merged.pdf
 files/bac/bac_2017_accounting_ge_merged.pdf
@@ -29894,6 +29901,7 @@ files/bac/bac_2017_philo_tm_merged.pdf
 files/bac/bac_2017_physics_mt_merged.pdf
 files/bac/bac_2017_physics_se_merged.pdf
 files/bac/bac_2017_physics_tm_merged.pdf
+files/bac/bac_2017_science_mt_merged.pdf
 files/bac/bac_2017_science_se_merged.pdf
 files/bac/bac_2017_third_lang_le_merged.pdf
 files/bac/bac_2018_accounting_ge_merged.pdf
@@ -29950,6 +29958,7 @@ files/bac/bac_2018_philo_tm_merged.pdf
 files/bac/bac_2018_physics_mt_merged.pdf
 files/bac/bac_2018_physics_se_merged.pdf
 files/bac/bac_2018_physics_tm_merged.pdf
+files/bac/bac_2018_science_mt_merged.pdf
 files/bac/bac_2018_science_se_merged.pdf
 files/bac/bac_2018_third_lang_le_merged.pdf
 files/bac/bac_2019_accounting_ge_merged.pdf
@@ -30006,6 +30015,7 @@ files/bac/bac_2019_philo_tm_merged.pdf
 files/bac/bac_2019_physics_mt_merged.pdf
 files/bac/bac_2019_physics_se_merged.pdf
 files/bac/bac_2019_physics_tm_merged.pdf
+files/bac/bac_2019_science_mt_merged.pdf
 files/bac/bac_2019_science_se_merged.pdf
 files/bac/bac_2019_third_lang_le_merged.pdf
 files/bac/bac_2020_accounting_ge_merged.pdf
@@ -30062,6 +30072,7 @@ files/bac/bac_2020_philo_tm_merged.pdf
 files/bac/bac_2020_physics_mt_merged.pdf
 files/bac/bac_2020_physics_se_merged.pdf
 files/bac/bac_2020_physics_tm_merged.pdf
+files/bac/bac_2020_science_mt_merged.pdf
 files/bac/bac_2020_science_se_merged.pdf
 files/bac/bac_2020_third_lang_le_merged.pdf
 files/bac/bac_2021_accounting_ge_merged.pdf
@@ -30116,6 +30127,7 @@ files/bac/bac_2021_philo_mt_merged.pdf
 files/bac/bac_2021_philo_se_merged.pdf
 files/bac/bac_2021_philo_tm_merged.pdf
 files/bac/bac_2021_physics_se_merged.pdf
+files/bac/bac_2021_science_mt_merged.pdf
 files/bac/bac_2021_science_se_merged.pdf
 files/bac/bac_2021_third_lang_le_merged.pdf
 files/bac/bac_2022_accounting_ge_merged.pdf
@@ -30171,6 +30183,7 @@ files/bac/bac_2022_philo_tm_merged.pdf
 files/bac/bac_2022_physics_mt_merged.pdf
 files/bac/bac_2022_physics_se_merged.pdf
 files/bac/bac_2022_physics_tm_merged.pdf
+files/bac/bac_2022_science_mt_merged.pdf
 files/bac/bac_2022_science_se_merged.pdf
 files/bac/bac_2022_third_lang_le_merged.pdf
 files/bac/bac_2023_accounting_ge_merged.pdf
@@ -30223,6 +30236,7 @@ files/bac/bac_2023_philo_tm_merged.pdf
 files/bac/bac_2023_physics_mt_merged.pdf
 files/bac/bac_2023_physics_se_merged.pdf
 files/bac/bac_2023_physics_tm_merged.pdf
+files/bac/bac_2023_science_mt_merged.pdf
 files/bac/bac_2023_science_se_merged.pdf
 files/bac/bac_2023_third_lang_le_merged.pdf
 files/bac/bac_2024_accounting_ge_merged.pdf
@@ -30275,6 +30289,7 @@ files/bac/bac_2024_philo_tm_merged.pdf
 files/bac/bac_2024_physics_mt_merged.pdf
 files/bac/bac_2024_physics_se_merged.pdf
 files/bac/bac_2024_physics_tm_merged.pdf
+files/bac/bac_2024_science_mt_merged.pdf
 files/bac/bac_2024_science_se_merged.pdf
 files/bac/bac_2024_third_lang_le_merged.pdf
 files/bac/bac_2025_accounting_ge_merged.pdf
@@ -30314,6 +30329,7 @@ files/bac/bac_2025_philo_tm_merged.pdf
 files/bac/bac_2025_physics_mt_merged.pdf
 files/bac/bac_2025_physics_se_merged.pdf
 files/bac/bac_2025_physics_tm_merged.pdf
+files/bac/bac_2025_science_mt_merged.pdf
 files/bac/bac_2025_science_se_merged.pdf
 files/bac/bac_2026_accounting_ge_merged.pdf
 files/bac/bac_2026_amazigh_ge_merged.pdf
