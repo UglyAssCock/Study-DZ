@@ -30132,6 +30132,7 @@ files/bac/bac_2022_philo_tm_merged.pdf
 files/bac/bac_2022_physics_se_merged.pdf
 files/bac/bac_2022_science_se_merged.pdf
 files/bac/bac_2022_third_lang_le_merged.pdf
+files/bac/bac_2023_accounting_ge_merged.pdf
 files/bac/bac_2023_amazigh_ge_merged.pdf
 files/bac/bac_2023_amazigh_le_merged.pdf
 files/bac/bac_2023_amazigh_lp_merged.pdf
@@ -30144,6 +30145,7 @@ files/bac/bac_2023_arabic_lp_merged.pdf
 files/bac/bac_2023_arabic_mt_merged.pdf
 files/bac/bac_2023_arabic_se_merged.pdf
 files/bac/bac_2023_arabic_tm_merged.pdf
+files/bac/bac_2023_economy_ge_merged.pdf
 files/bac/bac_2023_english_ge_merged.pdf
 files/bac/bac_2023_english_mt_merged.pdf
 files/bac/bac_2023_english_se_merged.pdf
@@ -30180,6 +30182,7 @@ files/bac/bac_2023_philo_tm_merged.pdf
 files/bac/bac_2023_physics_se_merged.pdf
 files/bac/bac_2023_science_se_merged.pdf
 files/bac/bac_2023_third_lang_le_merged.pdf
+files/bac/bac_2024_accounting_ge_merged.pdf
 files/bac/bac_2024_amazigh_ge_merged.pdf
 files/bac/bac_2024_amazigh_le_merged.pdf
 files/bac/bac_2024_amazigh_lp_merged.pdf
@@ -30192,6 +30195,7 @@ files/bac/bac_2024_arabic_lp_merged.pdf
 files/bac/bac_2024_arabic_mt_merged.pdf
 files/bac/bac_2024_arabic_se_merged.pdf
 files/bac/bac_2024_arabic_tm_merged.pdf
+files/bac/bac_2024_economy_ge_merged.pdf
 files/bac/bac_2024_english_ge_merged.pdf
 files/bac/bac_2024_english_mt_merged.pdf
 files/bac/bac_2024_english_se_merged.pdf
@@ -30228,11 +30232,13 @@ files/bac/bac_2024_philo_tm_merged.pdf
 files/bac/bac_2024_physics_se_merged.pdf
 files/bac/bac_2024_science_se_merged.pdf
 files/bac/bac_2024_third_lang_le_merged.pdf
+files/bac/bac_2025_accounting_ge_merged.pdf
 files/bac/bac_2025_arabic_ge_merged.pdf
 files/bac/bac_2025_arabic_le_merged.pdf
 files/bac/bac_2025_arabic_mt_merged.pdf
 files/bac/bac_2025_arabic_se_merged.pdf
 files/bac/bac_2025_arabic_tm_merged.pdf
+files/bac/bac_2025_economy_ge_merged.pdf
 files/bac/bac_2025_english_ge_merged.pdf
 files/bac/bac_2025_english_mt_merged.pdf
 files/bac/bac_2025_english_se_merged.pdf
@@ -30242,6 +30248,8 @@ files/bac/bac_2025_french_mt_merged.pdf
 files/bac/bac_2025_french_se_merged.pdf
 files/bac/bac_2025_french_tm_merged.pdf
 files/bac/bac_2025_hisgeo_ge_merged.pdf
+files/bac/bac_2025_hisgeo_le_merged.pdf
+files/bac/bac_2025_hisgeo_lp_merged.pdf
 files/bac/bac_2025_hisgeo_mt_merged.pdf
 files/bac/bac_2025_hisgeo_se_merged.pdf
 files/bac/bac_2025_hisgeo_tm_merged.pdf
@@ -30260,6 +30268,7 @@ files/bac/bac_2025_philo_se_merged.pdf
 files/bac/bac_2025_philo_tm_merged.pdf
 files/bac/bac_2025_physics_se_merged.pdf
 files/bac/bac_2025_science_se_merged.pdf
+files/bac/bac_2026_accounting_ge_merged.pdf
 files/bac/bac_2026_amazigh_ge_merged.pdf
 files/bac/bac_2026_amazigh_le_merged.pdf
 files/bac/bac_2026_amazigh_lp_merged.pdf
@@ -30271,6 +30280,7 @@ files/bac/bac_2026_arabic_le_merged.pdf
 files/bac/bac_2026_arabic_mt_merged.pdf
 files/bac/bac_2026_arabic_se_merged.pdf
 files/bac/bac_2026_arabic_tm_merged.pdf
+files/bac/bac_2026_economy_ge_merged.pdf
 files/bac/bac_2026_english_ge_merged.pdf
 files/bac/bac_2026_english_mt_merged.pdf
 files/bac/bac_2026_english_se_merged.pdf
@@ -30280,6 +30290,8 @@ files/bac/bac_2026_french_mt_merged.pdf
 files/bac/bac_2026_french_se_merged.pdf
 files/bac/bac_2026_french_tm_merged.pdf
 files/bac/bac_2026_hisgeo_ge_merged.pdf
+files/bac/bac_2026_hisgeo_le_merged.pdf
+files/bac/bac_2026_hisgeo_lp_merged.pdf
 files/bac/bac_2026_hisgeo_mt_merged.pdf
 files/bac/bac_2026_hisgeo_se_merged.pdf
 files/bac/bac_2026_hisgeo_tm_merged.pdf
