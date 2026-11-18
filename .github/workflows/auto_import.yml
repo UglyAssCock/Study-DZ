@@ -36,7 +36,7 @@ jobs:
       - name: Install Scraper and PDF Libraries
         run: pip install requests beautifulsoup4 pillow lxml pypdf
 
-      - name: Harvest Up To 10000 PDFs and Distribute Shared Subjects Across Branches
+      - name: Harvest Up To 10000 PDFs and Merge BAC, BEM, and 5eme With Corrections
         env:
           MAX_FILES: ${{ github.event.inputs.max_files_per_run }}
           EXTRA_URL: ${{ github.event.inputs.extra_url }}
@@ -69,7 +69,6 @@ jobs:
           subprocess.run(["git", "config", "user.name", "StudyDZ-Harvester"], check=False)
           subprocess.run(["git", "config", "user.email", "bot@studydz.app"], check=False)
 
-          # Track (branch_or_scope, md5_hex) so the same merged PDF CAN be placed into multiple shared branches
           scoped_hashes = set()
           seen_paths = set()
 
@@ -122,9 +121,6 @@ jobs:
                       subprocess.run(["git", "pull", "--no-rebase", "-X", "ours"], check=False)
                       subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
 
-          # =====================================================================
-          # STEP 0: BACKFILL EXISTING SHARED SUBJECTS ACROSS ALL SIBLING BRANCHES
-          # =====================================================================
           def get_sibling_streams(level, subject, current_stream):
               all_6 = ["se", "mt", "tm", "ge", "lp", "le"]
               sci_4 = ["se", "mt", "tm", "ge"]
@@ -214,10 +210,14 @@ jobs:
           if max_to_save < 10000:
               max_to_save = 10000
 
-          headers = {
-              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
-              "Referer": "https://eddirasa.com/"
+          base_headers = {
+              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
           }
+
+          def get_headers_for(target_url):
+              parsed = urllib.parse.urlparse(target_url)
+              origin = f"{parsed.scheme}://{parsed.netloc}/" if parsed.scheme and parsed.netloc else "https://eddirasa.com/"
+              return {**base_headers, "Referer": origin}
 
           def url_hash(u):
               return hashlib.md5(urllib.parse.unquote(u).strip().encode("utf-8")).hexdigest()[:12]
@@ -263,11 +263,11 @@ jobs:
               return True
 
           level_rules = [
-              ("1ap", ["first-primary", "1ere-primaire", "الأولى ابتدائي", "اولى ابتدائي", "1 ابتدائي", "سنة أولى ابتدائي", "/1ap/"]),
-              ("2ap", ["second-primary", "2eme-primaire", "الثانية ابتدائي", "ثانية ابتدائي", "2 ابتدائي", "سنة ثانية ابتدائي", "/2ap/"]),
-              ("3ap", ["third-primary", "3eme-primaire", "الثالثة ابتدائي", "ثالثة ابتدائي", "3 ابتدائي", "سنة ثالثة ابتدائي", "/3ap/"]),
-              ("4ap", ["fourth-primary", "4eme-primaire", "الرابعة ابتدائي", "رابعة ابتدائي", "4 ابتدائي", "سنة رابعة ابتدائي", "/4ap/"]),
-              ("5ap", ["fifth-primary", "5eme-primaire", "الخامسة ابتدائي", "خامسة ابتدائي", "5 ابتدائي", "سنة خامسة ابتدائي", "/5ap/", "cinqueme", "cinquieme", "cinq-solutions"]),
+              ("1ap", ["first-primary", "1ere-primaire", "الأولى ابتدائي", "الأولى إبتدائي", "اولى ابتدائي", "1 ابتدائي", "سنة أولى ابتدائي", "/1ap/"]),
+              ("2ap", ["second-primary", "2eme-primaire", "الثانية ابتدائي", "الثانية إبتدائي", "ثانية ابتدائي", "2 ابتدائي", "سنة ثانية ابتدائي", "/2ap/"]),
+              ("3ap", ["third-primary", "3eme-primaire", "الثالثة ابتدائي", "الثالثة إبتدائي", "ثالثة ابتدائي", "3 ابتدائي", "سنة ثالثة ابتدائي", "/3ap/"]),
+              ("4ap", ["fourth-primary", "4eme-primaire", "الرابعة ابتدائي", "الرابعة إبتدائي", "رابعة ابتدائي", "4 ابتدائي", "سنة رابعة ابتدائي", "/4ap/"]),
+              ("5ap", ["fifth-primary", "5eme-primaire", "الخامسة ابتدائي", "الخامسة إبتدائي", "خامسة ابتدائي", "5 ابتدائي", "سنة خامسة ابتدائي", "/5ap/", "cinqueme", "cinquieme", "cinq-solutions"]),
               ("1am", ["first-middle", "first-medium", "first-am", "1ere-moyen", "الأولى متوسط", "اولى متوسط", "1 متوسط", "سنة أولى متوسط", "/1am/"]),
               ("2am", ["second-middle", "second-medium", "second-am", "2eme-moyen", "الثانية متوسط", "ثانية متوسط", "2 متوسط", "سنة ثانية متوسط", "/2am/"]),
               ("3am", ["third-middle", "third-medium", "third-am", "3eme-moyen", "الثالثة متوسط", "ثالثة متوسط", "3 متوسط", "سنة ثالثة متوسط", "/3am/"]),
@@ -373,7 +373,7 @@ jobs:
 
               if level == "1as":
                   has_st = any(w in t_space for w in ["جذع مشترك علوم", "ج م ع"]) or ("science-1as" in t) or (subject == "engineering")
-                  has_l = any(w in t_space for w in ["جذع مشترك آداب", "ج م آ"]) or ("literary-1as" in t)
+                  has_l = any(w in t_space for w in ["جذع مشترك آداب", "ج م آ", "ج م ا"]) or ("literary-1as" in t)
                   if has_st and not has_l:
                       return ["tc_st"]
                   if has_l and not has_st:
@@ -382,7 +382,6 @@ jobs:
                       return parent_streams
                   return ["tc_st"] if subject == "engineering" else ["tc_st", "tc_l"]
 
-              # Exclusive branch subjects
               if subject == "engineering":
                   return ["tm"]
               if subject in ["accounting", "economy", "law"]:
@@ -390,22 +389,21 @@ jobs:
               if subject == "third_lang":
                   return ["le"]
 
-              # Subjects unified across ALL 6 branches
               if subject in ["islamic", "amazigh"]:
                   return all_6
 
               explicit = []
-              if any(w in t_space for w in ["علوم تجريبية", "شعبة علوم تجريبية"]) or any(w in t for w in ["-se/", "-se-", "-se"]) or re.search(r'/bac-20\d\d/sciences/', t):
+              if any(w in t_space for w in ["علوم تجريبية", "شعبة علوم تجريبية", "شعبة ع ت"]) or any(w in t for w in ["-se/", "-se-", "-se"]) or re.search(r'/bac-20\d\d/sciences/', t):
                   explicit.append("se")
-              if any(w in t_space for w in ["شعبة رياضيات", "شعبة الرياضيات"]) or any(w in t for w in ["exams-math", "tests-math", "/mathematics/", "-mt-", "-mt/", "bac-math-"]) or re.search(r'باك\s*20\d\d\s*رياضيات', t_space):
+              if any(w in t_space for w in ["شعبة رياضيات", "شعبة الرياضيات"]) or re.search(r'شعبة\s+ر(?:\s|$|-|\|)', t_space) or any(w in t for w in ["exams-math", "tests-math", "/mathematics/", "-mt-", "-mt/", "bac-math-"]) or re.search(r'باك\s*20\d\d\s*رياضيات', t_space):
                   explicit.append("mt")
-              if any(w in t_space for w in ["تقني رياضي", "التقني الرياضي"]) or any(w in t for w in ["technical-mathematics", "tech-math", "-tm-", "-tm/"]):
+              if any(w in t_space for w in ["تقني رياضي", "التقني الرياضي", "شعبة ت ر"]) or any(w in t for w in ["technical-mathematics", "tech-math", "-tm-", "-tm/"]):
                   explicit.append("tm")
-              if any(w in t_space for w in ["تسيير واقتصاد", "تسيير و اقتصاد", "تسيير و إقتصاد", "تسيير وإقتصاد"]) or any(w in t for w in ["exams-management", "tests-management", "management-economics", "management", "-ge-", "-ge/"]):
+              if any(w in t_space for w in ["تسيير واقتصاد", "تسيير و اقتصاد", "تسيير و إقتصاد", "تسيير وإقتصاد", "شعبة ت إ", "شعبة ت ا"]) or any(w in t for w in ["exams-management", "tests-management", "management-economics", "management", "-ge-", "-ge/"]):
                   explicit.append("ge")
-              if any(w in t_space for w in ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة"]) or any(w in t for w in ["exams-literary", "tests-literary", "literature-philosophy", "-lp-", "-lp/"]):
+              if any(w in t_space for w in ["آداب وفلسفة", "اداب وفلسفة", "آداب و فلسفة", "شعبة آ ف", "شعبة ا ف"]) or any(w in t for w in ["exams-literary", "tests-literary", "literature-philosophy", "-lp-", "-lp/"]):
                   explicit.append("lp")
-              if any(w in t_space for w in ["لغات أجنبية", "لغات اجنبية"]) or any(w in t for w in ["foreign-languages", "-le-", "-le/"]):
+              if any(w in t_space for w in ["لغات أجنبية", "لغات اجنبية", "شعبة ل أ", "شعبة ل ا"]) or any(w in t for w in ["foreign-languages", "-le-", "-le/"]):
                   explicit.append("le")
 
               is_all_sci = any(w in t_space for w in ["شعب علمية", "الشعب العلمية"]) or any(w in t for w in ["-sci-", "-sc-", "exams-science", "tests-science"])
@@ -415,7 +413,6 @@ jobs:
               if is_all_branches:
                   return all_6
 
-              # Expand shared subjects to ALL branches that share the same official exam
               if subject in ["arabic", "french", "english", "hisgeo"]:
                   if any(s in explicit for s in lit_2) or is_all_lit:
                       if subject == "hisgeo":
@@ -457,7 +454,7 @@ jobs:
 
           def analyze_metadata(text, parent_meta=None):
               t = urllib.parse.unquote(text).lower()
-              for slogan in ["دروس وفروض واختبارات", "موقع الدراسة الجزائري"]:
+              for slogan in ["دروس وفروض واختبارات", "موقع الدراسة الجزائري", "الموقع الأول لتحضير الفروض والاختبارات في الجزائر"]:
                   t = t.replace(slogan, " ")
               t_space = t.replace("-", " ")
 
@@ -478,9 +475,9 @@ jobs:
 
               archive_type = None
               if not has_trimester and not (parent_meta and parent_meta.get("has_trimester")):
-                  if any(w in t for w in ["بكالوريا", "البكالوريا", "/bac-", "/bac/", "bac-solutions", "-باك-", "bacdz.net"]):
+                  if any(w in t for w in ["بكالوريا", "البكالوريا", "/bac-", "/bac/", "/bac", "bac-solutions", "-باك-", "bacdz.net"]):
                       archive_type = "bac"
-                  elif any(w in t for w in ["شهادة التعليم المتوسط", "البيام", "/bem-", "/bem/", "bem-solutions"]):
+                  elif any(w in t for w in ["شهادة التعليم المتوسط", "البيام", "/bem-", "/bem/", "/bem", "bem-solutions"]):
                       archive_type = "bem"
                   elif any(w in t for w in ["شهادة التعليم الابتدائي", "شهادة التعليم الإبتدائي", "السانكيام", "/5eme-", "/5eme/", "cinqueme", "cinquieme", "cinq-solutions"]):
                       archive_type = "5eme"
@@ -586,6 +583,8 @@ jobs:
                   return urllib.parse.urljoin(full_link, sub_q["file"][0])
               if ".pdf" in full_link.lower() and "docs.google.com" not in full_link.lower():
                   return full_link
+              if "dzexams.com" in full_link.lower() and any(k in full_link.lower() for k in ["/telecharger/", "/download/", "/pdf/"]):
+                  return full_link
               gd_match = (
                   re.search(r'/file/d/([a-zA-Z0-9_-]+)', full_link)
                   or re.search(r'[?&]id=([a-zA-Z0-9_-]+)', full_link)
@@ -595,6 +594,7 @@ jobs:
               return None
 
           def convert_soup_images_to_pdf_bytes(soup, page_url):
+              req_h = get_headers_for(page_url)
               content_box = (
                   soup.find("div", class_=re.compile(r"entry-content|post-content|article|main|sujet"))
                   or soup
@@ -609,7 +609,7 @@ jobs:
                       continue
                   src = urllib.parse.urljoin(page_url, src)
                   try:
-                      ir = requests.get(src, headers=headers, timeout=15)
+                      ir = requests.get(src, headers=req_h, timeout=15)
                       if ir.status_code == 200:
                           im = Image.open(io.BytesIO(ir.content)).convert("RGB")
                           w, h = im.size
@@ -633,7 +633,8 @@ jobs:
 
           def extract_first_pdf_bytes_from_page(page_url):
               try:
-                  r = requests.get(page_url, headers=headers, timeout=20)
+                  req_h = get_headers_for(page_url)
+                  r = requests.get(page_url, headers=req_h, timeout=20)
                   if r.status_code != 200:
                       return None
                   if r.content[:4] == b"%PDF":
@@ -647,12 +648,12 @@ jobs:
                               candidates.append(pdf_u)
                   clean_html = r.text.replace(r"\/", "/")
                   abs_pdfs = re.findall(r'https?://[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
-                  rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/)[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
+                  rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/|/telecharger/)[^\s"\'\\`]+', clean_html, flags=re.IGNORECASE)
                   for u in abs_pdfs + [urllib.parse.urljoin(page_url, rp) for rp in rel_pdfs]:
                       if u not in candidates:
                           candidates.append(u)
                   for c_url in candidates:
-                      pr = requests.get(c_url, headers=headers, timeout=20)
+                      pr = requests.get(c_url, headers=req_h, timeout=20)
                       if pr.status_code == 200 and pr.content[:4] == b"%PDF":
                           return pr.content
                   return convert_soup_images_to_pdf_bytes(soup, page_url)
@@ -672,9 +673,10 @@ jobs:
                   return 0
               try:
                   page_url = urllib.parse.unquote(page_url)
+                  req_h = get_headers_for(page_url)
                   is_archive_merged = any("_merged.pdf" in p.lower() for p in out_filepaths)
 
-                  r = requests.get(page_url, headers=headers, timeout=20)
+                  r = requests.get(page_url, headers=req_h, timeout=20)
                   if r.status_code != 200:
                       return 0
                   if r.content[:4] == b"%PDF":
@@ -717,8 +719,9 @@ jobs:
 
                   for tag in soup.find_all(["a", "button", "iframe", "embed", "object"]):
                       tag_text = tag.get_text(" ", strip=True)
+                      tag_id_cls = " ".join(tag.get("class") or []) + " " + (tag.get("id") or "")
                       raw_href = tag.get("href") or tag.get("data-url") or tag.get("data-href") or ""
-                      if raw_href and any(w in tag_text for w in ["تصحيح الموضوع", "عرض التصحيح", "الحل النموذجي", "تصحيح موضوع", "التصحيح"]):
+                      if raw_href and any(w in tag_text for w in ["تصحيح الموضوع", "عرض التصحيح", "الحل النموذجي", "تصحيح موضوع", "التصحيح", "حل"]):
                           full_corr_page = urllib.parse.unquote(urllib.parse.urljoin(page_url, raw_href.replace(r"\/", "/")))
                           if not full_corr_page.lower().endswith(".pdf") and full_corr_page != page_url and full_corr_page not in companion_correction_pages:
                               companion_correction_pages.append(full_corr_page)
@@ -727,7 +730,11 @@ jobs:
                           pdf_u = extract_direct_pdf_url(tag.get(attr) or "", page_url)
                           if not pdf_u:
                               continue
-                          is_corr_tag = any(w in tag_text for w in ["التصحيح", "الحل"]) or any(w in pdf_u.lower() for w in ["_cor", "-cor", "corr-", "_sol", "-sol", "corrige", "correction"])
+                          is_corr_tag = (
+                              any(w in tag_text for w in ["التصحيح", "الحل", "حل"])
+                              or any(w in pdf_u.lower() for w in ["_cor", "-cor", "corr-", "_sol", "-sol", "corrige", "correction", "solution"])
+                              or any(w in tag_id_cls.lower() for w in ["corr", "sol", "solution"])
+                          )
                           if is_corr_tag:
                               if pdf_u not in correction_pdfs:
                                   correction_pdfs.append(pdf_u)
@@ -737,17 +744,22 @@ jobs:
 
                   clean_html = r.text.replace(r"\/", "/")
                   abs_pdfs = re.findall(r'https?://[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
-                  rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/)[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
+                  rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/|/telecharger/)[^\s"\'\\`]+', clean_html, flags=re.IGNORECASE)
                   for u in abs_pdfs + [urllib.parse.urljoin(page_url, rp) for rp in rel_pdfs]:
-                      if any(w in u.lower() for w in ["_cor", "-cor", "corr-", "_sol", "-sol", "corrige", "correction"]):
+                      if any(w in u.lower() for w in ["_cor", "-cor", "corr-", "_sol", "-sol", "corrige", "correction", "solution"]):
                           if u not in correction_pdfs:
                               correction_pdfs.append(u)
                       else:
                           if u not in subject_pdfs:
                               subject_pdfs.append(u)
 
+                  # On dzexams.com, when both subject and solution PDFs are embedded in the same page, the 2nd PDF is the correction
+                  if "dzexams.com" in page_url and len(subject_pdfs) >= 2 and not correction_pdfs:
+                      correction_pdfs.append(subject_pdfs[1])
+                      subject_pdfs = [subject_pdfs[0]]
+
                   for pdf_candidate in subject_pdfs:
-                      pr = requests.get(pdf_candidate, headers=headers, timeout=20)
+                      pr = requests.get(pdf_candidate, headers=req_h, timeout=20)
                       if pr.status_code == 200 and pr.content[:4] == b"%PDF":
                           final_pdf_bytes = pr.content
                           merged_done = False
@@ -757,7 +769,7 @@ jobs:
                                   if corr_u == pdf_candidate:
                                       continue
                                   try:
-                                      cr = requests.get(corr_u, headers=headers, timeout=20)
+                                      cr = requests.get(corr_u, headers=req_h, timeout=20)
                                       if cr.status_code == 200 and cr.content[:4] == b"%PDF":
                                           merged_res = merge_two_pdfs_bytes(pr.content, cr.content)
                                           if merged_res:
@@ -829,14 +841,22 @@ jobs:
               combined = title_hint + " " + url
               meta = analyze_metadata(combined, parent_meta=parent_meta)
 
-              if not meta.get("subject"):
+              # Always inspect title/H1/breadcrumb when URL uses an opaque ID (such as dzexams.com/ar/annales/... or /ar/sujets/...)
+              needs_page_inspection = (
+                  not meta.get("subject")
+                  or any(k in url for k in ["/annales/", "/sujets/"])
+                  or (meta.get("archive_type") and not meta.get("year"))
+              )
+              if needs_page_inspection:
                   try:
-                      r = requests.get(url, headers=headers, timeout=15)
+                      r = requests.get(url, headers=get_headers_for(url), timeout=15)
                       if r.status_code == 200 and r.content[:4] != b"%PDF":
                           soup = BeautifulSoup(r.text, "html.parser")
                           page_title = soup.title.string if soup.title else ""
                           h1_txt = " ".join([h.get_text(" ", strip=True) for h in soup.find_all(["h1"])])
-                          combined = page_title + " " + h1_txt + " " + combined
+                          bc_el = soup.find(["ol", "ul", "nav"], class_=re.compile(r"breadcrumb", re.I))
+                          bc_txt = bc_el.get_text(" ", strip=True) if bc_el else ""
+                          combined = f"{page_title} {h1_txt} {bc_txt} {combined}"
                           meta = analyze_metadata(combined, parent_meta=parent_meta)
                   except Exception:
                       pass
@@ -871,7 +891,7 @@ jobs:
 
               unquoted_hub = urllib.parse.unquote(hub_url)
               if (
-                  any(k in unquoted_hub for k in ["/examen-", "/correction-examen-", "/bac-", "/correction-bac-", "/eddirasa-bac-", "/eddirasa-correction-bac-", "/bem-", "/correction-bem-", "/موضوع-", "/تصحيح-"])
+                  any(k in unquoted_hub for k in ["/annales/", "/sujets/", "/examen-", "/correction-examen-", "/bac-", "/correction-bac-", "/eddirasa-bac-", "/eddirasa-correction-bac-", "/bem-", "/correction-bem-", "/موضوع-", "/تصحيح-"])
                   and not any(h in unquoted_hub for h in ["bac-solutions", "bem-solutions"])
               ):
                   process_single_article_url(unquoted_hub, "", None)
@@ -879,7 +899,7 @@ jobs:
 
               print("Crawling URL:", unquoted_hub)
               try:
-                  r = requests.get(unquoted_hub, headers=headers, timeout=22)
+                  r = requests.get(unquoted_hub, headers=get_headers_for(unquoted_hub), timeout=22)
                   if r.status_code != 200:
                       return
 
@@ -923,7 +943,7 @@ jobs:
                       if parent_meta.get("has_trimester") and sub_trim != parent_meta["trimester"] and "رقم" not in context_txt:
                           continue
 
-                      is_child_path = full_u.startswith(unquoted_hub.rstrip("/"))
+                      is_child_path = full_u.startswith(unquoted_hub.rstrip("/")) or any(k in full_u for k in ["/annales/", "/sujets/"])
                       has_study_word = any(
                           w in (context_txt + " " + full_u).lower()
                           for w in [
