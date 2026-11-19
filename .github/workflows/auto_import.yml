@@ -17,6 +17,10 @@ on:
         description: 'Max new PDFs to save in this run (default 10000)'
         required: true
         default: '10000'
+      overwrite_dzexams:
+        description: 'Overwrite existing PDF if same year/subject/stream exists? (true/false)'
+        required: false
+        default: 'false'
 
 concurrency:
   group: study-dz-harvester
@@ -42,12 +46,14 @@ jobs:
         env:
           MAX_FILES: ${{ github.event.inputs.max_files_per_run }}
           EXTRA_URL: ${{ github.event.inputs.extra_url }}
+          OVERWRITE_DZ: ${{ github.event.inputs.overwrite_dzexams }}
         shell: python
         run: |
           import os
           import re
           import io
           import time
+          import base64
           import shutil
           import hashlib
           import threading
@@ -61,6 +67,7 @@ jobs:
 
           start_time = time.time()
           MAX_RUNTIME_SECONDS = 50 * 60
+          overwrite_dz = os.environ.get("OVERWRITE_DZ", "false").strip().lower() == "true"
 
           def is_time_up():
               return (time.time() - start_time) > MAX_RUNTIME_SECONDS
@@ -106,6 +113,7 @@ jobs:
 
           lock = threading.Lock()
           saved_total = 0
+          dz_stats = {"processed": 0, "saved": 0, "existed": 0, "failed": 0}
 
           def write_index_and_push(msg):
               with lock:
@@ -119,9 +127,11 @@ jobs:
                   subprocess.run(["git", "add", "-A", "files/"], check=False)
                   res = subprocess.run(["git", "diff", "--staged", "--quiet"])
                   if res.returncode != 0:
-                      subprocess.run(["git", "commit", "-m", msg], check=False)
+                      c_res = subprocess.run(["git", "commit", "-m", msg], capture_output=True, text=True)
+                      print("git commit:", c_res.returncode, c_res.stdout.strip(), c_res.stderr.strip())
                       subprocess.run(["git", "pull", "--no-rebase", "-X", "ours"], check=False)
-                      subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
+                      p_res = subprocess.run(["git", "push", "origin", "HEAD:main"], capture_output=True, text=True)
+                      print("git push:", p_res.returncode, p_res.stdout.strip(), p_res.stderr.strip())
 
           def get_sibling_streams(level, subject, current_stream):
               all_6 = ["se", "mt", "tm", "ge", "lp", "le"]
@@ -213,7 +223,7 @@ jobs:
               max_to_save = 10000
 
           base_headers = {
-              "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
           }
 
           def get_headers_for(target_url):
@@ -248,7 +258,7 @@ jobs:
               scope = get_scope_from_path(norm_path)
 
               with lock:
-                  if (scope, md5_hex) in scoped_hashes:
+                  if not allow_overwrite and (scope, md5_hex) in scoped_hashes:
                       return False
                   if not allow_overwrite and (norm_path in seen_paths or os.path.exists(norm_path)):
                       stem, ext = os.path.splitext(norm_path)
@@ -584,7 +594,7 @@ jobs:
               return [os.path.join(folder, f"{meta['level']}_{subj}_{meta['trimester']}_{meta['category']}{sfx}.pdf").replace("\\", "/")]
 
           # =====================================================================
-          # PLAYWRIGHT BROWSER HANDLER FOR DZEXAMS.COM (MAIN THREAD ONLY)
+          # STEALTH PLAYWRIGHT HANDLER FOR DZEXAMS.COM
           # =====================================================================
           pw_state = {"pw": None, "browser": None, "context": None}
 
@@ -592,11 +602,23 @@ jobs:
               if pw_state["context"] is None:
                   from playwright.sync_api import sync_playwright
                   pw_state["pw"] = sync_playwright().start()
-                  pw_state["browser"] = pw_state["pw"].chromium.launch(headless=True)
+                  pw_state["browser"] = pw_state["pw"].chromium.launch(
+                      headless=True,
+                      args=[
+                          "--disable-blink-features=AutomationControlled",
+                          "--no-sandbox",
+                          "--disable-dev-shm-usage",
+                      ],
+                  )
                   pw_state["context"] = pw_state["browser"].new_context(
                       accept_downloads=True,
                       user_agent=base_headers["User-Agent"],
-                      locale="ar-DZ"
+                      locale="ar-DZ",
+                      viewport={"width": 1366, "height": 900},
+                      extra_http_headers={"Accept-Language": "ar-DZ,ar;q=0.9,fr;q=0.8,en;q=0.7"},
+                  )
+                  pw_state["context"].add_init_script(
+                      "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
                   )
               return pw_state["context"]
 
@@ -611,47 +633,135 @@ jobs:
               except Exception:
                   pass
 
+          def pil_images_to_pdf_bytes(pil_imgs):
+              if not pil_imgs:
+                  return None
+              buf = io.BytesIO()
+              pil_imgs[0].save(
+                  buf,
+                  "PDF",
+                  resolution=100.0,
+                  save_all=True,
+                  append_images=pil_imgs[1:],
+              )
+              val = buf.getvalue()
+              return val if (len(val) >= 1500 and val[:4] == b"%PDF") else None
+
+          def capture_dzexams_dom_as_pdf(page, ctx):
+              # Method A: Extract rendered PDF.js <canvas> pages directly from the browser
+              try:
+                  page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+                  page.wait_for_timeout(800)
+                  canvas_urls = page.evaluate("""() => {
+                      const out = [];
+                      for (const c of document.querySelectorAll('canvas')) {
+                          if (c.width >= 300 && c.height >= 300) {
+                              try { out.push(c.toDataURL('image/jpeg', 0.92)); } catch (e) {}
+                          }
+                      }
+                      return out;
+                  }""")
+                  if canvas_urls:
+                      imgs = []
+                      for du in canvas_urls:
+                          if "," in du:
+                              raw_b = base64.b64decode(du.split(",", 1)[1])
+                              imgs.append(Image.open(io.BytesIO(raw_b)).convert("RGB"))
+                      pdf_b = pil_images_to_pdf_bytes(imgs)
+                      if pdf_b:
+                          print(f"DzExams captured {len(imgs)} canvas page(s) into PDF.")
+                          return pdf_b
+              except Exception:
+                  pass
+
+              # Method B: Fetch large document <img> tags using the browser's live cookies
+              try:
+                  img_srcs = page.evaluate("""() => {
+                      const out = [];
+                      for (const img of document.querySelectorAll('img')) {
+                          const src = img.currentSrc || img.src || img.getAttribute('data-src') || '';
+                          const w = img.naturalWidth || img.width || 0;
+                          const h = img.naturalHeight || img.height || 0;
+                          if (src && w >= 420 && h >= 420) out.push(src);
+                      }
+                      return [...new Set(out)];
+                  }""")
+                  imgs = []
+                  for src in img_srcs:
+                      if any(s in src.lower() for s in ["logo", "avatar", "icon", "banner", "ads", "promo"]):
+                          continue
+                      try:
+                          resp = ctx.request.get(src, timeout=15000)
+                          if resp.ok:
+                              im = Image.open(io.BytesIO(resp.body())).convert("RGB")
+                              if im.size[0] >= 420 and im.size[1] >= 420:
+                                  imgs.append(im)
+                      except Exception:
+                          pass
+                  pdf_b = pil_images_to_pdf_bytes(imgs)
+                  if pdf_b:
+                      print(f"DzExams captured {len(imgs)} DOM image(s) into PDF.")
+                      return pdf_b
+              except Exception:
+                  pass
+              return None
+
           def process_dzexams_article(url, title_hint="", parent_meta=None):
               global saved_total
               if saved_total >= max_to_save or is_time_up():
                   return False
 
-              print("Opening DzExams with Chromium:", url)
+              dz_stats["processed"] += 1
+              print("Opening DzExams with Stealth Chromium:", url)
               captured_pdfs = []
               seen_pdf_md5 = set()
 
-              def add_pdf_candidate(raw_bytes):
+              def add_pdf_candidate(raw_bytes, source_label=""):
                   if raw_bytes and len(raw_bytes) >= 1500 and raw_bytes[:4] == b"%PDF":
                       h = hashlib.md5(raw_bytes).hexdigest()
                       if h not in seen_pdf_md5:
                           seen_pdf_md5.add(h)
                           captured_pdfs.append(raw_bytes)
+                          print(f"DzExams PDF captured ({len(raw_bytes)} bytes) via {source_label}")
                           return True
                   return False
 
+              ctx = get_pw_context()
+
+              def on_ctx_response(resp):
+                  try:
+                      if resp.status not in (200, 206):
+                          return
+                      ctype = (resp.headers.get("content-type") or "").lower()
+                      cdisp = (resp.headers.get("content-disposition") or "").lower()
+                      rurl = resp.url.lower()
+                      if any(skip in ctype for skip in ["text/html", "text/css", "javascript", "font", "image/", "json"]):
+                          return
+                      is_likely_pdf = (
+                          "pdf" in ctype
+                          or "octet-stream" in ctype
+                          or "attachment" in cdisp
+                          or ".pdf" in rurl
+                          or "/telecharger" in rurl
+                          or "/download" in rurl
+                          or "/documents/" in rurl
+                          or "/fichier" in rurl
+                      )
+                      if is_likely_pdf:
+                          add_pdf_candidate(resp.body(), f"network:{resp.url[:80]}")
+                  except Exception:
+                      pass
+
+              ctx.on("response", on_ctx_response)
               page = None
+              popups = []
               try:
-                  ctx = get_pw_context()
                   page = ctx.new_page()
-
-                  def on_response(resp):
-                      try:
-                          if resp.status != 200:
-                              return
-                          ctype = (resp.headers.get("content-type") or "").lower()
-                          rurl = resp.url.lower()
-                          if "pdf" in ctype or "octet-stream" in ctype or ".pdf" in rurl or "/telecharger" in rurl or "/download" in rurl:
-                              add_pdf_candidate(resp.body())
-                      except Exception:
-                          pass
-
-                  page.on("response", on_response)
-
                   try:
                       page.goto(url, wait_until="networkidle", timeout=35000)
                   except Exception:
                       page.goto(url, wait_until="domcontentloaded", timeout=35000)
-                  page.wait_for_timeout(3000)
+                  page.wait_for_timeout(4500)
 
                   page_title = page.title() or ""
                   h1_txt = " ".join(page.locator("h1").all_inner_texts())
@@ -660,38 +770,87 @@ jobs:
                   meta = analyze_metadata(combined_meta_text, parent_meta=parent_meta)
 
                   if not meta.get("subject"):
-                      print("DzExams skipped (subject not detected):", page_title)
+                      print("DzExams SKIPPED (subject not detected) -> title:", page_title)
+                      dz_stats["failed"] += 1
                       return False
 
                   short_tag = url_hash(url)[:6]
                   out_paths = build_filepaths(meta, short_tag)
-                  missing_paths = [p for p in out_paths if not os.path.exists(p)]
-                  print(f"DzExams parsed -> archive={meta.get('archive_type')} year={meta.get('year')} subj={meta.get('subject')} streams={meta.get('streams')} missing={missing_paths}")
+                  target_paths = out_paths if overwrite_dz else [p for p in out_paths if not os.path.exists(p)]
+                  print(f"DzExams parsed -> archive={meta.get('archive_type')} year={meta.get('year')} subj={meta.get('subject')} streams={meta.get('streams')} targets={target_paths}")
 
-                  if not missing_paths:
-                      print("DzExams already exists in repo, skipping:", out_paths)
+                  if not target_paths:
+                      print("DzExams SKIPPED (already exists in repo):", out_paths)
+                      dz_stats["existed"] += 1
                       return False
 
-                  # If PDF viewer didn't automatically stream the PDF, click the 'تحميل' download button
+                  # Strategy 1: Inspect iframe/embed/object/links in DOM and fetch with browser cookies
+                  if not captured_pdfs:
+                      dom_urls = page.evaluate("""() => {
+                          const found = [];
+                          const add = (u) => { if (u && !u.startsWith('#') && !u.startsWith('javascript')) found.push(u); };
+                          document.querySelectorAll('iframe, embed, object').forEach(el => {
+                              add(el.src || el.data || el.getAttribute('data-src'));
+                          });
+                          document.querySelectorAll('a, button').forEach(el => {
+                              const txt = (el.innerText || '').trim();
+                              const href = el.href || el.getAttribute('data-url') || el.getAttribute('data-href') || '';
+                              if (href && (href.includes('.pdf') || href.includes('telecharger') || href.includes('download') || href.includes('/documents/') || txt.includes('تحميل'))) {
+                                  add(href);
+                              }
+                          });
+                          return [...new Set(found)];
+                      }""")
+                      for du in dom_urls:
+                          full_du = urllib.parse.urljoin(url, du)
+                          sub_q = urllib.parse.parse_qs(urllib.parse.urlparse(full_du).query)
+                          if "file" in sub_q:
+                              full_du = urllib.parse.urljoin(full_du, sub_q["file"][0])
+                          try:
+                              api_r = ctx.request.get(full_du, timeout=20000)
+                              if api_r.ok:
+                                  add_pdf_candidate(api_r.body(), f"dom-fetch:{full_du[:80]}")
+                          except Exception:
+                              pass
+
+                  # Strategy 2: Click the 'تحميل' button (handles direct download OR new popup tab)
                   if not captured_pdfs:
                       dl_selectors = [
                           "a:has-text('تحميل')",
                           "button:has-text('تحميل')",
+                          "[title*='تحميل']",
                           "a[href*='telecharger']",
-                          "a[href*='download']",
-                          "a[href$='.pdf']"
+                          "a[href*='download']"
                       ]
                       for sel in dl_selectors:
                           loc = page.locator(sel)
-                          if loc.count() > 0:
+                          if loc.count() == 0:
+                              continue
+                          try:
+                              with page.expect_download(timeout=8000) as dl_info:
+                                  loc.first.click(force=True)
+                              dl = dl_info.value
+                              tmp_p = dl.path()
+                              if tmp_p and os.path.exists(tmp_p):
+                                  with open(tmp_p, "rb") as df:
+                                      add_pdf_candidate(df.read(), "click-download")
+                              if captured_pdfs:
+                                  break
+                          except Exception:
+                              pass
+
+                          if not captured_pdfs:
                               try:
-                                  with page.expect_download(timeout=12000) as dl_info:
+                                  with ctx.expect_page(timeout=5000) as pop_info:
                                       loc.first.click(force=True)
-                                  dl = dl_info.value
-                                  tmp_path = dl.path()
-                                  if tmp_path and os.path.exists(tmp_path):
-                                      with open(tmp_path, "rb") as df:
-                                          add_pdf_candidate(df.read())
+                                  pop = pop_info.value
+                                  popups.append(pop)
+                                  pop.wait_for_load_state("domcontentloaded", timeout=15000)
+                                  pop.wait_for_timeout(3000)
+                                  if not captured_pdfs:
+                                      pop_r = ctx.request.get(pop.url, timeout=15000)
+                                      if pop_r.ok:
+                                          add_pdf_candidate(pop_r.body(), "popup-url")
                                   if captured_pdfs:
                                       break
                               except Exception:
@@ -699,65 +858,27 @@ jobs:
                                   if captured_pdfs:
                                       break
 
-                  # Also check if a separate correction button/modal loads a 2nd distinct PDF
-                  if len(captured_pdfs) == 1:
-                      sol_selectors = [
-                          "main button:has-text('الحل')",
-                          "main a:has-text('الحل')",
-                          "main button:has-text('التصحيح')",
-                          "main a:has-text('التصحيح')",
-                          "button:has-text('عرض الحل')",
-                          "a:has-text('عرض الحل')"
-                      ]
-                      for ssel in sol_selectors:
-                          sloc = page.locator(ssel)
-                          if sloc.count() > 0:
-                              try:
-                                  sloc.first.click(force=True, timeout=4000)
-                                  page.wait_for_timeout(2500)
-                                  if len(captured_pdfs) >= 2:
-                                      break
-                              except Exception:
-                                  pass
-
-                  # Fallback: capture direct iframe/embed PDF URL using browser cookies
+                  # Strategy 3: Capture rendered <canvas> or DOM <img> pages directly
                   if not captured_pdfs:
-                      html_content = page.content()
-                      soup = BeautifulSoup(html_content, "html.parser")
-                      pdf_links = []
-                      for tag in soup.find_all(["iframe", "embed", "object", "a"]):
-                          for attr in ["src", "href", "data", "data-file", "data-url"]:
-                              u_cand = extract_direct_pdf_url(tag.get(attr) or "", url)
-                              if u_cand and u_cand not in pdf_links:
-                                  pdf_links.append(u_cand)
-                      for p_url in pdf_links:
-                          try:
-                              api_resp = ctx.request.get(p_url, timeout=20000)
-                              if api_resp.ok:
-                                  add_pdf_candidate(api_resp.body())
-                          except Exception:
-                              pass
-
-                      # Last fallback: convert high-res rendered document images on the page into PDF
-                      if not captured_pdfs:
-                          img_pdf = convert_soup_images_to_pdf_bytes(soup, url)
-                          if img_pdf:
-                              add_pdf_candidate(img_pdf)
+                      dom_pdf = capture_dzexams_dom_as_pdf(page, ctx)
+                      if dom_pdf:
+                          add_pdf_candidate(dom_pdf, "dom-canvas-or-img")
 
                   if not captured_pdfs:
-                      print("DzExams WARNING: Could not capture any PDF from:", url)
+                      print("DzExams FAILED: 0 PDFs captured from", url, "| title:", page_title)
+                      dz_stats["failed"] += 1
                       return False
 
                   if len(captured_pdfs) >= 2:
                       final_bytes = merge_two_pdfs_bytes(captured_pdfs[0], captured_pdfs[1]) or captured_pdfs[0]
                   else:
-                      # DzExams 'annales' files marked with 'حل ✅' already bundle exam + solution inside 1 PDF
                       final_bytes = captured_pdfs[0]
 
-                  is_arch = any("_merged.pdf" in p.lower() for p in missing_paths)
-                  added_now = save_bytes_to_all_targets(final_bytes, missing_paths, allow_overwrite=is_arch)
-                  print(f"DzExams captured {len(captured_pdfs)} PDF(s) -> saved {added_now} file(s).")
+                  is_arch = any("_merged.pdf" in p.lower() for p in target_paths)
+                  added_now = save_bytes_to_all_targets(final_bytes, target_paths, allow_overwrite=(is_arch or overwrite_dz))
+                  print(f"DzExams SUCCESS -> saved {added_now} file(s): {target_paths}")
                   if added_now > 0:
+                      dz_stats["saved"] += added_now
                       with lock:
                           prev_batch = saved_total // 10
                           saved_total += added_now
@@ -766,11 +887,23 @@ jobs:
                       if new_batch > prev_batch:
                           write_index_and_push(f"Imported batch: +{curr} unique PDFs")
                       return True
-                  return False
+                  else:
+                      dz_stats["existed"] += 1
+                      return False
               except Exception as e:
-                  print("DzExams error on", url, "->", e)
+                  print("DzExams EXCEPTION on", url, "->", e)
+                  dz_stats["failed"] += 1
                   return False
               finally:
+                  try:
+                      ctx.remove_listener("response", on_ctx_response)
+                  except Exception:
+                      pass
+                  for pop in popups:
+                      try:
+                          pop.close()
+                      except Exception:
+                          pass
                   if page:
                       try:
                           page.close()
@@ -785,8 +918,6 @@ jobs:
               if "file" in sub_q:
                   return urllib.parse.urljoin(full_link, sub_q["file"][0])
               if ".pdf" in full_link.lower() and "docs.google.com" not in full_link.lower():
-                  return full_link
-              if "dzexams.com" in full_link.lower() and any(k in full_link.lower() for k in ["/telecharger/", "/download/", "/pdf/"]):
                   return full_link
               gd_match = (
                   re.search(r'/file/d/([a-zA-Z0-9_-]+)', full_link)
@@ -820,19 +951,7 @@ jobs:
                               pil_imgs.append(im)
                   except Exception:
                       pass
-              if pil_imgs:
-                  buf = io.BytesIO()
-                  pil_imgs[0].save(
-                      buf,
-                      "PDF",
-                      resolution=100.0,
-                      save_all=True,
-                      append_images=pil_imgs[1:],
-                  )
-                  val = buf.getvalue()
-                  if len(val) >= 1500 and val[:4] == b"%PDF":
-                      return val
-              return None
+              return pil_images_to_pdf_bytes(pil_imgs)
 
           def extract_first_pdf_bytes_from_page(page_url):
               try:
@@ -1173,8 +1292,14 @@ jobs:
                       if clean_l.startswith("http") and clean_l not in user_urls:
                           user_urls.append(clean_l)
 
+          # Always process DzExams direct links FIRST before long category crawls
+          dz_urls = [u for u in user_urls if "dzexams.com" in u.lower()]
+          other_urls = [u for u in user_urls if "dzexams.com" not in u.lower()]
+          ordered_urls = dz_urls + other_urls
+          print(f"Queue summary: {len(dz_urls)} DzExams URL(s), {len(other_urls)} other URL(s).")
+
           try:
-              for u in user_urls:
+              for u in ordered_urls:
                   if saved_total >= max_to_save or is_time_up():
                       break
                   crawl_hub_url(u)
@@ -1182,4 +1307,5 @@ jobs:
               close_pw()
 
           write_index_and_push(f"Harvest completed (+{saved_total} unique PDFs)")
+          print("DzExams summary:", dz_stats)
           print("Finished harvest! Total new unique PDFs added:", saved_total)
