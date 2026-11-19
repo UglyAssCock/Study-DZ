@@ -45,7 +45,7 @@ jobs:
 
       - name: Harvest Up To 10000 PDFs (Eddirasa, EducationDZ, BacDZ, DzExams)
         env:
-        PYTHONUNBUFFERED: "1"
+          PYTHONUNBUFFERED: "1"
           MAX_FILES: ${{ github.event.inputs.max_files_per_run }}
           EXTRA_URL: ${{ github.event.inputs.extra_url }}
           OVERWRITE_DZ: ${{ github.event.inputs.overwrite_dzexams }}
