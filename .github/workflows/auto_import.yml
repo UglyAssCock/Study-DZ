@@ -40,11 +40,12 @@ jobs:
       - name: Install Scraper, PDF, and Undetected Chrome Libraries
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb python3-tk python3-dev scrot
           pip install requests beautifulsoup4 pillow lxml pypdf seleniumbase pyvirtualdisplay
 
       - name: Harvest Up To 10000 PDFs (Eddirasa, EducationDZ, BacDZ, DzExams)
         env:
+        PYTHONUNBUFFERED: "1"
           MAX_FILES: ${{ github.event.inputs.max_files_per_run }}
           EXTRA_URL: ${{ github.event.inputs.extra_url }}
           OVERWRITE_DZ: ${{ github.event.inputs.overwrite_dzexams }}
@@ -760,7 +761,7 @@ jobs:
               from seleniumbase import SB
               dl_dirs = [os.path.abspath("downloaded_files"), os.path.expanduser("~/Downloads")]
 
-              with SB(uc=True, test=True, xvfb=True) as sb:
+              with SB(uc=True, xvfb=True) as sb:
                   try:
                       sb_dl = sb.get_downloads_folder()
                       if sb_dl and sb_dl not in dl_dirs:
