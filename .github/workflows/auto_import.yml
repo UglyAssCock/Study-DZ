@@ -33,10 +33,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Scraper and PDF Libraries
-        run: pip install requests beautifulsoup4 pillow lxml pypdf
+      - name: Install Scraper, PDF, and Browser Libraries
+        run: |
+          pip install requests beautifulsoup4 pillow lxml pypdf playwright
+          playwright install --with-deps chromium
 
-      - name: Harvest Up To 10000 PDFs and Merge BAC, BEM, and 5eme With Corrections
+      - name: Harvest Up To 10000 PDFs (Eddirasa, EducationDZ, BacDZ, DzExams)
         env:
           MAX_FILES: ${{ github.event.inputs.max_files_per_run }}
           EXTRA_URL: ${{ github.event.inputs.extra_url }}
@@ -261,6 +263,13 @@ jobs:
                       cf.write(f"{scope}:{md5_hex}\n")
               print("Saved unique PDF:", norm_path)
               return True
+
+          def save_bytes_to_all_targets(pdf_bytes, target_paths, allow_overwrite=False):
+              saved_count = 0
+              for tp in target_paths:
+                  if register_unique_pdf_bytes(pdf_bytes, tp, allow_overwrite=allow_overwrite):
+                      saved_count += 1
+              return saved_count
 
           level_rules = [
               ("1ap", ["first-primary", "1ere-primaire", "الأولى ابتدائي", "الأولى إبتدائي", "اولى ابتدائي", "1 ابتدائي", "سنة أولى ابتدائي", "/1ap/"]),
@@ -574,6 +583,200 @@ jobs:
                   return [os.path.join(folder, f"{meta['level']}_{subj}_book{sfx}.pdf").replace("\\", "/")]
               return [os.path.join(folder, f"{meta['level']}_{subj}_{meta['trimester']}_{meta['category']}{sfx}.pdf").replace("\\", "/")]
 
+          # =====================================================================
+          # PLAYWRIGHT BROWSER HANDLER FOR DZEXAMS.COM (MAIN THREAD ONLY)
+          # =====================================================================
+          pw_state = {"pw": None, "browser": None, "context": None}
+
+          def get_pw_context():
+              if pw_state["context"] is None:
+                  from playwright.sync_api import sync_playwright
+                  pw_state["pw"] = sync_playwright().start()
+                  pw_state["browser"] = pw_state["pw"].chromium.launch(headless=True)
+                  pw_state["context"] = pw_state["browser"].new_context(
+                      accept_downloads=True,
+                      user_agent=base_headers["User-Agent"],
+                      locale="ar-DZ"
+                  )
+              return pw_state["context"]
+
+          def close_pw():
+              try:
+                  if pw_state["context"]:
+                      pw_state["context"].close()
+                  if pw_state["browser"]:
+                      pw_state["browser"].close()
+                  if pw_state["pw"]:
+                      pw_state["pw"].stop()
+              except Exception:
+                  pass
+
+          def process_dzexams_article(url, title_hint="", parent_meta=None):
+              global saved_total
+              if saved_total >= max_to_save or is_time_up():
+                  return False
+
+              print("Opening DzExams with Chromium:", url)
+              captured_pdfs = []
+              seen_pdf_md5 = set()
+
+              def add_pdf_candidate(raw_bytes):
+                  if raw_bytes and len(raw_bytes) >= 1500 and raw_bytes[:4] == b"%PDF":
+                      h = hashlib.md5(raw_bytes).hexdigest()
+                      if h not in seen_pdf_md5:
+                          seen_pdf_md5.add(h)
+                          captured_pdfs.append(raw_bytes)
+                          return True
+                  return False
+
+              page = None
+              try:
+                  ctx = get_pw_context()
+                  page = ctx.new_page()
+
+                  def on_response(resp):
+                      try:
+                          if resp.status != 200:
+                              return
+                          ctype = (resp.headers.get("content-type") or "").lower()
+                          rurl = resp.url.lower()
+                          if "pdf" in ctype or "octet-stream" in ctype or ".pdf" in rurl or "/telecharger" in rurl or "/download" in rurl:
+                              add_pdf_candidate(resp.body())
+                      except Exception:
+                          pass
+
+                  page.on("response", on_response)
+
+                  try:
+                      page.goto(url, wait_until="networkidle", timeout=35000)
+                  except Exception:
+                      page.goto(url, wait_until="domcontentloaded", timeout=35000)
+                  page.wait_for_timeout(3000)
+
+                  page_title = page.title() or ""
+                  h1_txt = " ".join(page.locator("h1").all_inner_texts())
+                  bc_txt = " ".join(page.locator(".breadcrumb, nav[aria-label*='breadcrumb'], ol.breadcrumb").all_inner_texts())
+                  combined_meta_text = f"{page_title} {h1_txt} {bc_txt} {title_hint} {url}"
+                  meta = analyze_metadata(combined_meta_text, parent_meta=parent_meta)
+
+                  if not meta.get("subject"):
+                      print("DzExams skipped (subject not detected):", page_title)
+                      return False
+
+                  short_tag = url_hash(url)[:6]
+                  out_paths = build_filepaths(meta, short_tag)
+                  missing_paths = [p for p in out_paths if not os.path.exists(p)]
+                  print(f"DzExams parsed -> archive={meta.get('archive_type')} year={meta.get('year')} subj={meta.get('subject')} streams={meta.get('streams')} missing={missing_paths}")
+
+                  if not missing_paths:
+                      print("DzExams already exists in repo, skipping:", out_paths)
+                      return False
+
+                  # If PDF viewer didn't automatically stream the PDF, click the 'تحميل' download button
+                  if not captured_pdfs:
+                      dl_selectors = [
+                          "a:has-text('تحميل')",
+                          "button:has-text('تحميل')",
+                          "a[href*='telecharger']",
+                          "a[href*='download']",
+                          "a[href$='.pdf']"
+                      ]
+                      for sel in dl_selectors:
+                          loc = page.locator(sel)
+                          if loc.count() > 0:
+                              try:
+                                  with page.expect_download(timeout=12000) as dl_info:
+                                      loc.first.click(force=True)
+                                  dl = dl_info.value
+                                  tmp_path = dl.path()
+                                  if tmp_path and os.path.exists(tmp_path):
+                                      with open(tmp_path, "rb") as df:
+                                          add_pdf_candidate(df.read())
+                                  if captured_pdfs:
+                                      break
+                              except Exception:
+                                  page.wait_for_timeout(2000)
+                                  if captured_pdfs:
+                                      break
+
+                  # Also check if a separate correction button/modal loads a 2nd distinct PDF
+                  if len(captured_pdfs) == 1:
+                      sol_selectors = [
+                          "main button:has-text('الحل')",
+                          "main a:has-text('الحل')",
+                          "main button:has-text('التصحيح')",
+                          "main a:has-text('التصحيح')",
+                          "button:has-text('عرض الحل')",
+                          "a:has-text('عرض الحل')"
+                      ]
+                      for ssel in sol_selectors:
+                          sloc = page.locator(ssel)
+                          if sloc.count() > 0:
+                              try:
+                                  sloc.first.click(force=True, timeout=4000)
+                                  page.wait_for_timeout(2500)
+                                  if len(captured_pdfs) >= 2:
+                                      break
+                              except Exception:
+                                  pass
+
+                  # Fallback: capture direct iframe/embed PDF URL using browser cookies
+                  if not captured_pdfs:
+                      html_content = page.content()
+                      soup = BeautifulSoup(html_content, "html.parser")
+                      pdf_links = []
+                      for tag in soup.find_all(["iframe", "embed", "object", "a"]):
+                          for attr in ["src", "href", "data", "data-file", "data-url"]:
+                              u_cand = extract_direct_pdf_url(tag.get(attr) or "", url)
+                              if u_cand and u_cand not in pdf_links:
+                                  pdf_links.append(u_cand)
+                      for p_url in pdf_links:
+                          try:
+                              api_resp = ctx.request.get(p_url, timeout=20000)
+                              if api_resp.ok:
+                                  add_pdf_candidate(api_resp.body())
+                          except Exception:
+                              pass
+
+                      # Last fallback: convert high-res rendered document images on the page into PDF
+                      if not captured_pdfs:
+                          img_pdf = convert_soup_images_to_pdf_bytes(soup, url)
+                          if img_pdf:
+                              add_pdf_candidate(img_pdf)
+
+                  if not captured_pdfs:
+                      print("DzExams WARNING: Could not capture any PDF from:", url)
+                      return False
+
+                  if len(captured_pdfs) >= 2:
+                      final_bytes = merge_two_pdfs_bytes(captured_pdfs[0], captured_pdfs[1]) or captured_pdfs[0]
+                  else:
+                      # DzExams 'annales' files marked with 'حل ✅' already bundle exam + solution inside 1 PDF
+                      final_bytes = captured_pdfs[0]
+
+                  is_arch = any("_merged.pdf" in p.lower() for p in missing_paths)
+                  added_now = save_bytes_to_all_targets(final_bytes, missing_paths, allow_overwrite=is_arch)
+                  print(f"DzExams captured {len(captured_pdfs)} PDF(s) -> saved {added_now} file(s).")
+                  if added_now > 0:
+                      with lock:
+                          prev_batch = saved_total // 10
+                          saved_total += added_now
+                          new_batch = saved_total // 10
+                          curr = saved_total
+                      if new_batch > prev_batch:
+                          write_index_and_push(f"Imported batch: +{curr} unique PDFs")
+                      return True
+                  return False
+              except Exception as e:
+                  print("DzExams error on", url, "->", e)
+                  return False
+              finally:
+                  if page:
+                      try:
+                          page.close()
+                      except Exception:
+                          pass
+
           def extract_direct_pdf_url(raw_link, base_url):
               if not raw_link or raw_link.startswith("#") or raw_link.startswith("javascript"):
                   return None
@@ -648,7 +851,7 @@ jobs:
                               candidates.append(pdf_u)
                   clean_html = r.text.replace(r"\/", "/")
                   abs_pdfs = re.findall(r'https?://[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
-                  rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/|/telecharger/)[^\s"\'\\`]+', clean_html, flags=re.IGNORECASE)
+                  rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/)[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
                   for u in abs_pdfs + [urllib.parse.urljoin(page_url, rp) for rp in rel_pdfs]:
                       if u not in candidates:
                           candidates.append(u)
@@ -660,13 +863,6 @@ jobs:
               except Exception:
                   pass
               return None
-
-          def save_bytes_to_all_targets(pdf_bytes, target_paths, allow_overwrite=False):
-              saved_count = 0
-              for tp in target_paths:
-                  if register_unique_pdf_bytes(pdf_bytes, tp, allow_overwrite=allow_overwrite):
-                      saved_count += 1
-              return saved_count
 
           def download_or_convert_to_pdfs(page_url, out_filepaths):
               if not out_filepaths or is_time_up():
@@ -719,9 +915,8 @@ jobs:
 
                   for tag in soup.find_all(["a", "button", "iframe", "embed", "object"]):
                       tag_text = tag.get_text(" ", strip=True)
-                      tag_id_cls = " ".join(tag.get("class") or []) + " " + (tag.get("id") or "")
                       raw_href = tag.get("href") or tag.get("data-url") or tag.get("data-href") or ""
-                      if raw_href and any(w in tag_text for w in ["تصحيح الموضوع", "عرض التصحيح", "الحل النموذجي", "تصحيح موضوع", "التصحيح", "حل"]):
+                      if raw_href and any(w in tag_text for w in ["تصحيح الموضوع", "عرض التصحيح", "الحل النموذجي", "تصحيح موضوع", "التصحيح"]):
                           full_corr_page = urllib.parse.unquote(urllib.parse.urljoin(page_url, raw_href.replace(r"\/", "/")))
                           if not full_corr_page.lower().endswith(".pdf") and full_corr_page != page_url and full_corr_page not in companion_correction_pages:
                               companion_correction_pages.append(full_corr_page)
@@ -730,11 +925,7 @@ jobs:
                           pdf_u = extract_direct_pdf_url(tag.get(attr) or "", page_url)
                           if not pdf_u:
                               continue
-                          is_corr_tag = (
-                              any(w in tag_text for w in ["التصحيح", "الحل", "حل"])
-                              or any(w in pdf_u.lower() for w in ["_cor", "-cor", "corr-", "_sol", "-sol", "corrige", "correction", "solution"])
-                              or any(w in tag_id_cls.lower() for w in ["corr", "sol", "solution"])
-                          )
+                          is_corr_tag = any(w in tag_text for w in ["التصحيح", "الحل"]) or any(w in pdf_u.lower() for w in ["_cor", "-cor", "corr-", "_sol", "-sol", "corrige", "correction"])
                           if is_corr_tag:
                               if pdf_u not in correction_pdfs:
                                   correction_pdfs.append(pdf_u)
@@ -744,19 +935,14 @@ jobs:
 
                   clean_html = r.text.replace(r"\/", "/")
                   abs_pdfs = re.findall(r'https?://[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
-                  rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/|/telecharger/)[^\s"\'\\`]+', clean_html, flags=re.IGNORECASE)
+                  rel_pdfs = re.findall(r'(?:/wp-content/uploads/|/uploads/|/files/|/storage/)[^\s"\'\\`]+?\.pdf', clean_html, flags=re.IGNORECASE)
                   for u in abs_pdfs + [urllib.parse.urljoin(page_url, rp) for rp in rel_pdfs]:
-                      if any(w in u.lower() for w in ["_cor", "-cor", "corr-", "_sol", "-sol", "corrige", "correction", "solution"]):
+                      if any(w in u.lower() for w in ["_cor", "-cor", "corr-", "_sol", "-sol", "corrige", "correction"]):
                           if u not in correction_pdfs:
                               correction_pdfs.append(u)
                       else:
                           if u not in subject_pdfs:
                               subject_pdfs.append(u)
-
-                  # On dzexams.com, when both subject and solution PDFs are embedded in the same page, the 2nd PDF is the correction
-                  if "dzexams.com" in page_url and len(subject_pdfs) >= 2 and not correction_pdfs:
-                      correction_pdfs.append(subject_pdfs[1])
-                      subject_pdfs = [subject_pdfs[0]]
 
                   for pdf_candidate in subject_pdfs:
                       pr = requests.get(pdf_candidate, headers=req_h, timeout=20)
@@ -819,6 +1005,9 @@ jobs:
               if saved_total >= max_to_save or is_time_up():
                   return False
 
+              if "dzexams.com" in url.lower():
+                  return process_dzexams_article(url, title_hint=title_hint, parent_meta=parent_meta)
+
               url = urllib.parse.unquote(url)
               if "/تصحيح-" in url:
                   url = url.replace("/تصحيح-", "/موضوع-", 1)
@@ -841,22 +1030,14 @@ jobs:
               combined = title_hint + " " + url
               meta = analyze_metadata(combined, parent_meta=parent_meta)
 
-              # Always inspect title/H1/breadcrumb when URL uses an opaque ID (such as dzexams.com/ar/annales/... or /ar/sujets/...)
-              needs_page_inspection = (
-                  not meta.get("subject")
-                  or any(k in url for k in ["/annales/", "/sujets/"])
-                  or (meta.get("archive_type") and not meta.get("year"))
-              )
-              if needs_page_inspection:
+              if not meta.get("subject") or (meta.get("archive_type") and not meta.get("year")):
                   try:
                       r = requests.get(url, headers=get_headers_for(url), timeout=15)
                       if r.status_code == 200 and r.content[:4] != b"%PDF":
                           soup = BeautifulSoup(r.text, "html.parser")
                           page_title = soup.title.string if soup.title else ""
                           h1_txt = " ".join([h.get_text(" ", strip=True) for h in soup.find_all(["h1"])])
-                          bc_el = soup.find(["ol", "ul", "nav"], class_=re.compile(r"breadcrumb", re.I))
-                          bc_txt = bc_el.get_text(" ", strip=True) if bc_el else ""
-                          combined = f"{page_title} {h1_txt} {bc_txt} {combined}"
+                          combined = f"{page_title} {h1_txt} {combined}"
                           meta = analyze_metadata(combined, parent_meta=parent_meta)
                   except Exception:
                       pass
@@ -956,16 +1137,22 @@ jobs:
                           article_items.append((full_u, context_txt))
 
                   if article_items:
-                      with ThreadPoolExecutor(max_workers=10) as executor:
-                          futures = []
+                      if "dzexams.com" in unquoted_hub.lower():
                           for sub_u, sub_txt in article_items:
                               if saved_total >= max_to_save or is_time_up():
                                   break
-                              futures.append(
-                                  executor.submit(process_single_article_url, sub_u, sub_txt, parent_meta)
-                              )
-                          for _ in as_completed(futures):
-                              pass
+                              process_single_article_url(sub_u, sub_txt, parent_meta)
+                      else:
+                          with ThreadPoolExecutor(max_workers=10) as executor:
+                              futures = []
+                              for sub_u, sub_txt in article_items:
+                                  if saved_total >= max_to_save or is_time_up():
+                                      break
+                                  futures.append(
+                                      executor.submit(process_single_article_url, sub_u, sub_txt, parent_meta)
+                                  )
+                              for _ in as_completed(futures):
+                                  pass
                   else:
                       process_single_article_url(unquoted_hub, page_title, parent_meta)
 
@@ -986,10 +1173,13 @@ jobs:
                       if clean_l.startswith("http") and clean_l not in user_urls:
                           user_urls.append(clean_l)
 
-          for u in user_urls:
-              if saved_total >= max_to_save or is_time_up():
-                  break
-              crawl_hub_url(u)
+          try:
+              for u in user_urls:
+                  if saved_total >= max_to_save or is_time_up():
+                      break
+                  crawl_hub_url(u)
+          finally:
+              close_pw()
 
           write_index_and_push(f"Harvest completed (+{saved_total} unique PDFs)")
           print("Finished harvest! Total new unique PDFs added:", saved_total)
