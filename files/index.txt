@@ -34572,9 +34572,10 @@ files/bac/bac_2008_philo_lp_merged.pdf
 files/bac/bac_2008_philo_mt_merged.pdf
 files/bac/bac_2008_philo_se_merged.pdf
 files/bac/bac_2008_philo_tm_merged.pdf
-files/bac/bac_2008_phys_mt_merged.pdf
+files/bac/bac_2008_physics_mt_merged.pdf
 files/bac/bac_2008_physics_se_merged.pdf
-files/bac/bac_2008_sci_mt_merged.pdf
+files/bac/bac_2008_physics_tm_merged.pdf
+files/bac/bac_2008_science_mt_merged.pdf
 files/bac/bac_2008_science_se_merged.pdf
 files/bac/bac_2008_third_lang_le_merged.pdf
 files/bac/bac_2009_accounting_ge_merged.pdf
@@ -34630,9 +34631,10 @@ files/bac/bac_2009_philo_lp_merged.pdf
 files/bac/bac_2009_philo_mt_merged.pdf
 files/bac/bac_2009_philo_se_merged.pdf
 files/bac/bac_2009_philo_tm_merged.pdf
-files/bac/bac_2009_phys_mt_merged.pdf
+files/bac/bac_2009_physics_mt_merged.pdf
 files/bac/bac_2009_physics_se_merged.pdf
-files/bac/bac_2009_sci_mt_merged.pdf
+files/bac/bac_2009_physics_tm_merged.pdf
+files/bac/bac_2009_science_mt_merged.pdf
 files/bac/bac_2009_science_se_merged.pdf
 files/bac/bac_2009_third_lang_le_merged.pdf
 files/bac/bac_2010_accounting_ge_merged.pdf
@@ -35523,9 +35525,9 @@ files/bac/bac_2025_amazigh_lp_merged.pdf
 files/bac/bac_2025_amazigh_mt_merged.pdf
 files/bac/bac_2025_amazigh_se_merged.pdf
 files/bac/bac_2025_amazigh_tm_merged.pdf
-files/bac/bac_2025_ar_lp_merged.pdf
 files/bac/bac_2025_arabic_ge_merged.pdf
 files/bac/bac_2025_arabic_le_merged.pdf
+files/bac/bac_2025_arabic_lp_merged.pdf
 files/bac/bac_2025_arabic_mt_merged.pdf
 files/bac/bac_2025_arabic_se_merged.pdf
 files/bac/bac_2025_arabic_tm_merged.pdf
@@ -35579,9 +35581,9 @@ files/bac/bac_2026_amazigh_lp_merged.pdf
 files/bac/bac_2026_amazigh_mt_merged.pdf
 files/bac/bac_2026_amazigh_se_merged.pdf
 files/bac/bac_2026_amazigh_tm_merged.pdf
-files/bac/bac_2026_ar_lp_merged.pdf
 files/bac/bac_2026_arabic_ge_merged.pdf
 files/bac/bac_2026_arabic_le_merged.pdf
+files/bac/bac_2026_arabic_lp_merged.pdf
 files/bac/bac_2026_arabic_mt_merged.pdf
 files/bac/bac_2026_arabic_se_merged.pdf
 files/bac/bac_2026_arabic_tm_merged.pdf
