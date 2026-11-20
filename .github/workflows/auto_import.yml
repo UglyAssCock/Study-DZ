@@ -7,6 +7,7 @@ on:
     paths:
       - 'links.txt'
       - '.github/workflows/auto_import.yml'
+      - 'files/**/*.pdf'
   workflow_dispatch:
     inputs:
       extra_url:
