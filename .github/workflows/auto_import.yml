@@ -18,10 +18,6 @@ on:
         description: 'Max new PDFs to save in this run (default 10000)'
         required: true
         default: '10000'
-      overwrite_dzexams:
-        description: 'Overwrite existing PDF if same year/subject/stream exists? (true/false)'
-        required: false
-        default: 'false'
 
 concurrency:
   group: study-dz-harvester
@@ -37,27 +33,24 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
-      - name: Install Scraper, PDF, and Undetected Chrome Libraries
-        run: |
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb python3-tk python3-dev scrot
-          pip install requests beautifulsoup4 pillow lxml pypdf seleniumbase pyvirtualdisplay
+      - name: Install Scraper and PDF Libraries
+        run: pip install requests beautifulsoup4 pillow lxml pypdf
 
-      - name: Harvest Up To 10000 PDFs (Eddirasa, EducationDZ, BacDZ, DzExams)
+      - name: Update Index and Harvest PDFs (Eddirasa, EducationDZ, BacDZ)
         env:
           PYTHONUNBUFFERED: "1"
           MAX_FILES: ${{ github.event.inputs.max_files_per_run }}
           EXTRA_URL: ${{ github.event.inputs.extra_url }}
-          OVERWRITE_DZ: ${{ github.event.inputs.overwrite_dzexams }}
+          EVENT_NAME: ${{ github.event_name }}
         shell: python
         run: |
           import os
           import re
           import io
-          import glob
           import time
-          import base64
           import shutil
           import hashlib
           import threading
@@ -71,7 +64,6 @@ jobs:
 
           start_time = time.time()
           MAX_RUNTIME_SECONDS = 50 * 60
-          overwrite_dz = os.environ.get("OVERWRITE_DZ", "false").strip().lower() == "true"
 
           def is_time_up():
               return (time.time() - start_time) > MAX_RUNTIME_SECONDS
@@ -93,17 +85,21 @@ jobs:
               return "general"
 
           for root, _, fnames in os.walk("files"):
+              fset_lower = {f.lower() for f in fnames}
               for fn in sorted(fnames):
                   if not fn.lower().endswith(".pdf"):
                       continue
                   p = os.path.join(root, fn)
                   lower_fn = fn.lower()
+                  # Only delete an unmerged BAC/BEM/5eme copy if its _merged.pdf counterpart already exists
                   if lower_fn.startswith(("bac_", "bem_", "5eme_")) and not lower_fn.endswith("_merged.pdf"):
-                      try:
-                          os.remove(p)
-                          continue
-                      except Exception:
-                          pass
+                      merged_equiv = lower_fn[:-4] + "_merged.pdf"
+                      if merged_equiv in fset_lower:
+                          try:
+                              os.remove(p)
+                              continue
+                          except Exception:
+                              pass
                   try:
                       with open(p, "rb") as pf:
                           raw = pf.read()
@@ -117,7 +113,6 @@ jobs:
 
           lock = threading.Lock()
           saved_total = 0
-          dz_stats = {"processed": 0, "saved": 0, "existed": 0, "failed": 0}
 
           def write_index_and_push(msg):
               with lock:
@@ -126,6 +121,7 @@ jobs:
                       for fn in sorted(f_list):
                           if fn.lower().endswith(".pdf"):
                               all_rel_pdfs.append(os.path.join(r_dir, fn).replace("\\", "/"))
+                  all_rel_pdfs.sort()
                   with open("files/index.txt", "w", encoding="utf-8") as idx_f:
                       idx_f.write("\n".join(all_rel_pdfs))
                   subprocess.run(["git", "add", "-A", "files/"], check=False)
@@ -136,6 +132,21 @@ jobs:
                       subprocess.run(["git", "pull", "--no-rebase", "-X", "ours"], check=False)
                       p_res = subprocess.run(["git", "push", "origin", "HEAD:main"], capture_output=True, text=True)
                       print("git push:", p_res.returncode, p_res.stdout.strip(), p_res.stderr.strip())
+                  else:
+                      print("files/index.txt is already up to date.")
+
+          def is_manual_pdf_upload_only():
+              if os.environ.get("EVENT_NAME") != "push":
+                  return False
+              try:
+                  out = subprocess.check_output(
+                      ["git", "diff", "--name-only", "HEAD~1", "HEAD"],
+                      text=True
+                  ).strip().splitlines()
+                  changed = [f.strip() for f in out if f.strip()]
+                  return bool(changed) and all(f.startswith("files/") for f in changed)
+              except Exception:
+                  return False
 
           def get_sibling_streams(level, subject, current_stream):
               all_6 = ["se", "mt", "tm", "ge", "lp", "le"]
@@ -172,6 +183,7 @@ jobs:
                       return ["tc_st", "tc_l"]
               return [current_stream] if current_stream else []
 
+          # Distribute any existing or manually uploaded shared PDFs across sibling branches
           backfilled_count = 0
           for root, _, fnames in os.walk("files"):
               for fn in sorted(fnames):
@@ -214,6 +226,11 @@ jobs:
                                   backfilled_count += 1
                               except Exception:
                                   pass
+
+          if is_manual_pdf_upload_only():
+              print(f"Manual PDF upload detected. Distributed {backfilled_count} sibling file(s). Rebuilding files/index.txt...")
+              write_index_and_push(f"Auto-update index.txt (+{backfilled_count} shared copies)")
+              raise SystemExit(0)
 
           if backfilled_count > 0:
               print(f"Distributed {backfilled_count} existing shared PDFs across sibling branches.")
@@ -491,7 +508,7 @@ jobs:
 
           def analyze_metadata(text, parent_meta=None):
               t = urllib.parse.unquote(text).lower()
-              for slogan in ["دروس وفروض واختبارات", "موقع الدراسة الجزائري", "الموقع الأول لتحضير الفروض والاختبارات في الجزائر"]:
+              for slogan in ["دروس وفروض واختبارات", "موقع الدراسة الجزائري"]:
                   t = t.replace(slogan, " ")
               t_space = t.replace("-", " ")
 
@@ -610,302 +627,6 @@ jobs:
               if meta["category"] == "book":
                   return [os.path.join(folder, f"{meta['level']}_{subj}_book{sfx}.pdf").replace("\\", "/")]
               return [os.path.join(folder, f"{meta['level']}_{subj}_{meta['trimester']}_{meta['category']}{sfx}.pdf").replace("\\", "/")]
-
-          # =====================================================================
-          # SELENIUMBASE UNDETECTED CHROME (UC + XVFB) FOR DZEXAMS CLOUDFLARE
-          # =====================================================================
-          def is_cloudflare_title(title_str):
-              tl = (title_str or "").strip().lower()
-              return (
-                  not tl
-                  or "لحظة" in tl
-                  or "just a moment" in tl
-                  or "attention required" in tl
-                  or "checking your browser" in tl
-                  or "cloudflare" in tl
-              )
-
-          def browser_fetch_pdf_bytes(sb, target_url):
-              try:
-                  sb.driver.set_script_timeout(25)
-                  b64_data = sb.driver.execute_async_script("""
-                      const targetUrl = arguments[0];
-                      const done = arguments[1];
-                      fetch(targetUrl, {credentials: 'include'})
-                        .then(resp => {
-                          if (!resp.ok) { done(''); return null; }
-                          return resp.arrayBuffer();
-                        })
-                        .then(buf => {
-                          if (!buf || buf.byteLength < 1500) { done(''); return; }
-                          const bytes = new Uint8Array(buf);
-                          if (bytes[0] !== 0x25 || bytes[1] !== 0x50 || bytes[2] !== 0x44 || bytes[3] !== 0x46) {
-                              done(''); return;
-                          }
-                          let bin = '';
-                          const chunk = 0x8000;
-                          for (let i = 0; i < bytes.length; i += chunk) {
-                              bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-                          }
-                          done(btoa(bin));
-                        })
-                        .catch(() => done(''));
-                  """, target_url)
-                  if b64_data:
-                      raw = base64.b64decode(b64_data)
-                      if len(raw) >= 1500 and raw[:4] == b"%PDF":
-                          return raw
-              except Exception:
-                  pass
-              return None
-
-          def wait_for_new_downloaded_pdf(dl_dirs, before_files, timeout_sec=14):
-              end_t = time.time() + timeout_sec
-              while time.time() < end_t:
-                  for d in dl_dirs:
-                      if not os.path.isdir(d):
-                          continue
-                      for fp in glob.glob(os.path.join(d, "*")):
-                          if fp in before_files or fp.endswith(".crdownload") or fp.endswith(".tmp"):
-                              continue
-                          if os.path.isfile(fp) and os.path.getsize(fp) >= 1500:
-                              try:
-                                  with open(fp, "rb") as f:
-                                      raw = f.read()
-                                  if raw[:4] == b"%PDF":
-                                      try:
-                                          os.remove(fp)
-                                      except Exception:
-                                          pass
-                                      return raw
-                              except Exception:
-                                  pass
-                  time.sleep(0.8)
-              return None
-
-          def capture_sb_canvas_or_imgs_as_pdf(sb):
-              try:
-                  sb.execute_script("window.scrollTo(0, document.body.scrollHeight / 2);")
-                  sb.sleep(1.0)
-                  canvas_urls = sb.execute_script("""
-                      const out = [];
-                      for (const c of document.querySelectorAll('canvas')) {
-                          if (c.width >= 300 && c.height >= 300) {
-                              try { out.push(c.toDataURL('image/jpeg', 0.92)); } catch (e) {}
-                          }
-                      }
-                      return out;
-                  """)
-                  if canvas_urls:
-                      imgs = []
-                      for du in canvas_urls:
-                          if "," in du:
-                              raw_b = base64.b64decode(du.split(",", 1)[1])
-                              imgs.append(Image.open(io.BytesIO(raw_b)).convert("RGB"))
-                      pdf_b = pil_images_to_pdf_bytes(imgs)
-                      if pdf_b:
-                          print(f"DzExams captured {len(imgs)} canvas page(s) into PDF.")
-                          return pdf_b
-              except Exception:
-                  pass
-
-              try:
-                  img_b64_list = sb.driver.execute_async_script("""
-                      const done = arguments[0];
-                      const srcs = [];
-                      for (const img of document.querySelectorAll('img')) {
-                          const src = img.currentSrc || img.src || img.getAttribute('data-src') || '';
-                          const w = img.naturalWidth || img.width || 0;
-                          const h = img.naturalHeight || img.height || 0;
-                          if (src && w >= 420 && h >= 420 && !/(logo|avatar|icon|banner|ads|promo)/i.test(src)) {
-                              srcs.push(src);
-                          }
-                      }
-                      const unique = [...new Set(srcs)];
-                      Promise.all(unique.map(u =>
-                          fetch(u, {credentials: 'include'})
-                            .then(r => r.ok ? r.arrayBuffer() : null)
-                            .then(buf => {
-                              if (!buf) return '';
-                              const bytes = new Uint8Array(buf);
-                              let bin = '';
-                              const chunk = 0x8000;
-                              for (let i = 0; i < bytes.length; i += chunk) {
-                                  bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-                              }
-                              return btoa(bin);
-                            }).catch(() => '')
-                      )).then(res => done(res.filter(Boolean)));
-                  """)
-                  if img_b64_list:
-                      imgs = []
-                      for b64_img in img_b64_list:
-                          try:
-                              im = Image.open(io.BytesIO(base64.b64decode(b64_img))).convert("RGB")
-                              if im.size[0] >= 420 and im.size[1] >= 420:
-                                  imgs.append(im)
-                          except Exception:
-                              pass
-                      pdf_b = pil_images_to_pdf_bytes(imgs)
-                      if pdf_b:
-                          print(f"DzExams captured {len(imgs)} DOM image(s) into PDF.")
-                          return pdf_b
-              except Exception:
-                  pass
-              return None
-
-          def run_dzexams_batch(dz_url_list):
-              global saved_total
-              if not dz_url_list or is_time_up():
-                  return
-
-              from seleniumbase import SB
-              dl_dirs = [os.path.abspath("downloaded_files"), os.path.expanduser("~/Downloads")]
-
-              with SB(uc=True, xvfb=True) as sb:
-                  try:
-                      sb_dl = sb.get_downloads_folder()
-                      if sb_dl and sb_dl not in dl_dirs:
-                          dl_dirs.insert(0, sb_dl)
-                  except Exception:
-                      pass
-
-                  for url in dz_url_list:
-                      if saved_total >= max_to_save or is_time_up():
-                          break
-                      dz_stats["processed"] += 1
-                      print("Opening DzExams with UC Chrome:", url)
-
-                      try:
-                          sb.uc_open_with_reconnect(url, reconnect_time=6)
-                          for attempt in range(4):
-                              t_now = sb.get_title() or ""
-                              if not is_cloudflare_title(t_now):
-                                  break
-                              print(f"Cloudflare challenge detected (attempt {attempt + 1}/4), title='{t_now}' -> solving...")
-                              try:
-                                  sb.uc_gui_click_captcha()
-                              except Exception:
-                                  pass
-                              sb.sleep(5)
-
-                          page_title = sb.get_title() or ""
-                          if is_cloudflare_title(page_title):
-                              print("DzExams BLOCKED by Cloudflare on cloud IP -> title:", page_title)
-                              dz_stats["failed"] += 1
-                              continue
-
-                          h1_txt = sb.execute_script("return Array.from(document.querySelectorAll('h1')).map(e => e.innerText).join(' ');") or ""
-                          bc_txt = sb.execute_script("return Array.from(document.querySelectorAll('.breadcrumb, nav[aria-label*=\"breadcrumb\"], ol.breadcrumb')).map(e => e.innerText).join(' ');") or ""
-                          combined_meta_text = f"{page_title} {h1_txt} {bc_txt} {url}"
-                          meta = analyze_metadata(combined_meta_text)
-
-                          if not meta.get("subject"):
-                              print("DzExams SKIPPED (subject not detected) -> title:", page_title)
-                              dz_stats["failed"] += 1
-                              continue
-
-                          short_tag = url_hash(url)[:6]
-                          out_paths = build_filepaths(meta, short_tag)
-                          target_paths = out_paths if overwrite_dz else [p for p in out_paths if not os.path.exists(p)]
-                          print(f"DzExams parsed -> title='{page_title}' | archive={meta.get('archive_type')} year={meta.get('year')} subj={meta.get('subject')} streams={meta.get('streams')} targets={target_paths}")
-
-                          if not target_paths:
-                              print("DzExams SKIPPED (already exists in repo):", out_paths)
-                              dz_stats["existed"] += 1
-                              continue
-
-                          captured_pdfs = []
-                          seen_md5 = set()
-
-                          def add_pdf(raw_b, label):
-                              if raw_b and len(raw_b) >= 1500 and raw_b[:4] == b"%PDF":
-                                  h = hashlib.md5(raw_b).hexdigest()
-                                  if h not in seen_md5:
-                                      seen_md5.add(h)
-                                      captured_pdfs.append(raw_b)
-                                      print(f"DzExams PDF captured ({len(raw_b)} bytes) via {label}")
-                                      return True
-                              return False
-
-                          # Strategy 1: Find PDF / download URLs in DOM & iframes and fetch via Chrome's own fetch()
-                          dom_urls = sb.execute_script("""
-                              const found = [];
-                              const add = (u) => { if (u && !u.startsWith('#') && !u.startsWith('javascript')) found.push(u); };
-                              document.querySelectorAll('iframe, embed, object').forEach(el => {
-                                  add(el.src || el.data || el.getAttribute('data-src'));
-                              });
-                              document.querySelectorAll('a, button').forEach(el => {
-                                  const txt = (el.innerText || '').trim();
-                                  const href = el.href || el.getAttribute('data-url') || el.getAttribute('data-href') || '';
-                                  if (href && (href.includes('.pdf') || href.includes('telecharger') || href.includes('download') || href.includes('/documents/') || txt.includes('تحميل'))) {
-                                      add(href);
-                                  }
-                              });
-                              return [...new Set(found)];
-                          """) or []
-
-                          for du in dom_urls:
-                              full_du = urllib.parse.urljoin(url, du)
-                              sub_q = urllib.parse.parse_qs(urllib.parse.urlparse(full_du).query)
-                              if "file" in sub_q:
-                                  full_du = urllib.parse.urljoin(full_du, sub_q["file"][0])
-                              raw_pdf = browser_fetch_pdf_bytes(sb, full_du)
-                              if raw_pdf:
-                                  add_pdf(raw_pdf, f"chrome-fetch:{full_du[:75]}")
-
-                          # Strategy 2: Click the 'تحميل' button and grab the downloaded PDF from Chrome's download folder
-                          if not captured_pdfs:
-                              before_files = set()
-                              for d in dl_dirs:
-                                  if os.path.isdir(d):
-                                      before_files.update(glob.glob(os.path.join(d, "*")))
-
-                              clicked = sb.execute_script("""
-                                  const btns = Array.from(document.querySelectorAll('a, button'));
-                                  const target = btns.find(el => (el.innerText || '').trim().includes('تحميل') && el.offsetParent !== null);
-                                  if (target) { target.click(); return true; }
-                                  return false;
-                              """)
-                              if clicked:
-                                  dl_bytes = wait_for_new_downloaded_pdf(dl_dirs, before_files, timeout_sec=14)
-                                  if dl_bytes:
-                                      add_pdf(dl_bytes, "chrome-download-click")
-
-                          # Strategy 3: Capture rendered <canvas> or DOM images
-                          if not captured_pdfs:
-                              dom_pdf = capture_sb_canvas_or_imgs_as_pdf(sb)
-                              if dom_pdf:
-                                  add_pdf(dom_pdf, "dom-canvas-or-img")
-
-                          if not captured_pdfs:
-                              print("DzExams FAILED: 0 PDFs captured | dom_urls found:", dom_urls[:5])
-                              dz_stats["failed"] += 1
-                              continue
-
-                          final_bytes = (
-                              merge_two_pdfs_bytes(captured_pdfs[0], captured_pdfs[1]) or captured_pdfs[0]
-                              if len(captured_pdfs) >= 2
-                              else captured_pdfs[0]
-                          )
-
-                          is_arch = any("_merged.pdf" in p.lower() for p in target_paths)
-                          added_now = save_bytes_to_all_targets(final_bytes, target_paths, allow_overwrite=(is_arch or overwrite_dz))
-                          if added_now > 0:
-                              dz_stats["saved"] += added_now
-                              with lock:
-                                  prev_batch = saved_total // 10
-                                  saved_total += added_now
-                                  new_batch = saved_total // 10
-                                  curr = saved_total
-                              if new_batch > prev_batch:
-                                  write_index_and_push(f"Imported batch: +{curr} unique PDFs")
-                          else:
-                              dz_stats["existed"] += 1
-
-                      except Exception as e:
-                          print("DzExams EXCEPTION on", url, "->", e)
-                          dz_stats["failed"] += 1
 
           def extract_direct_pdf_url(raw_link, base_url):
               if not raw_link or raw_link.startswith("#") or raw_link.startswith("javascript"):
@@ -1184,6 +905,9 @@ jobs:
                   return
 
               unquoted_hub = urllib.parse.unquote(hub_url)
+              if "dzexams.com" in unquoted_hub.lower():
+                  return
+
               if (
                   any(k in unquoted_hub for k in ["/examen-", "/correction-examen-", "/bac-", "/correction-bac-", "/eddirasa-bac-", "/eddirasa-correction-bac-", "/bem-", "/correction-bem-", "/موضوع-", "/تصحيح-"])
                   and not any(h in unquoted_hub for h in ["bac-solutions", "bem-solutions"])
@@ -1280,18 +1004,14 @@ jobs:
                       if clean_l.startswith("http") and clean_l not in user_urls:
                           user_urls.append(clean_l)
 
-          dz_urls = [u for u in user_urls if "dzexams.com" in u.lower()]
-          other_urls = [u for u in user_urls if "dzexams.com" not in u.lower()]
-          print(f"Queue summary: {len(dz_urls)} DzExams URL(s), {len(other_urls)} other URL(s).")
+          skipped_dz = sum(1 for u in user_urls if "dzexams.com" in u.lower())
+          active_urls = [u for u in user_urls if "dzexams.com" not in u.lower()]
+          print(f"Queue summary: {len(active_urls)} active URL(s), {skipped_dz} skipped DzExams URL(s).")
 
-          if dz_urls:
-              run_dzexams_batch(dz_urls)
-
-          for u in other_urls:
+          for u in active_urls:
               if saved_total >= max_to_save or is_time_up():
                   break
               crawl_hub_url(u)
 
           write_index_and_push(f"Harvest completed (+{saved_total} unique PDFs)")
-          print("DzExams summary:", dz_stats)
           print("Finished harvest! Total new unique PDFs added:", saved_total)
