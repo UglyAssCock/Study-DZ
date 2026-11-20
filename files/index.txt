@@ -26435,6 +26435,7 @@ files/bac/bac_2025_physics_se_merged.pdf
 files/bac/bac_2025_physics_tm_merged.pdf
 files/bac/bac_2025_science_mt_merged.pdf
 files/bac/bac_2025_science_se_merged.pdf
+files/bac/bac_2025_third_lang_le_merged
 files/bac/bac_2026_accounting_ge_merged.pdf
 files/bac/bac_2026_amazigh_ge_merged.pdf
 files/bac/bac_2026_amazigh_le_merged.pdf
@@ -26481,6 +26482,7 @@ files/bac/bac_2026_physics_se_merged.pdf
 files/bac/bac_2026_physics_tm_merged.pdf
 files/bac/bac_2026_science_mt_merged.pdf
 files/bac/bac_2026_science_se_merged.pdf
+files/bac/bac_2026_third_lang_le_merged
 files/bem/bem_2008_arabic_merged.pdf
 files/bem/bem_2008_civics_merged.pdf
 files/bem/bem_2008_english_merged.pdf
