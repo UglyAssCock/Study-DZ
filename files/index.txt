@@ -34824,6 +34824,7 @@ files/bac/bac_2013_civics_se_merged.pdf
 files/bac/bac_2013_economy_ge_merged.pdf
 files/bac/bac_2013_engineering_tm_merged.pdf
 files/bac/bac_2013_english_ge_merged.pdf
+files/bac/bac_2013_english_lp_merged.pdf
 files/bac/bac_2013_english_mt_merged.pdf
 files/bac/bac_2013_english_se_merged.pdf
 files/bac/bac_2013_english_tm_merged.pdf
@@ -34995,6 +34996,7 @@ files/bac/bac_2016_civics_se_merged.pdf
 files/bac/bac_2016_economy_ge_merged.pdf
 files/bac/bac_2016_engineering_tm_merged.pdf
 files/bac/bac_2016_english_ge_merged.pdf
+files/bac/bac_2016_english_lp_merged.pdf
 files/bac/bac_2016_english_mt_merged.pdf
 files/bac/bac_2016_english_se_merged.pdf
 files/bac/bac_2016_english_tm_merged.pdf
@@ -35052,6 +35054,7 @@ files/bac/bac_2017_civics_se_merged.pdf
 files/bac/bac_2017_economy_ge_merged.pdf
 files/bac/bac_2017_engineering_tm_merged.pdf
 files/bac/bac_2017_english_ge_merged.pdf
+files/bac/bac_2017_english_lp_merged.pdf
 files/bac/bac_2017_english_mt_merged.pdf
 files/bac/bac_2017_english_se_merged.pdf
 files/bac/bac_2017_english_tm_merged.pdf
@@ -35109,6 +35112,7 @@ files/bac/bac_2018_civics_se_merged.pdf
 files/bac/bac_2018_economy_ge_merged.pdf
 files/bac/bac_2018_engineering_tm_merged.pdf
 files/bac/bac_2018_english_ge_merged.pdf
+files/bac/bac_2018_english_lp_merged.pdf
 files/bac/bac_2018_english_mt_merged.pdf
 files/bac/bac_2018_english_se_merged.pdf
 files/bac/bac_2018_english_tm_merged.pdf
@@ -35166,6 +35170,7 @@ files/bac/bac_2019_civics_se_merged.pdf
 files/bac/bac_2019_economy_ge_merged.pdf
 files/bac/bac_2019_engineering_tm_merged.pdf
 files/bac/bac_2019_english_ge_merged.pdf
+files/bac/bac_2019_english_lp_merged.pdf
 files/bac/bac_2019_english_mt_merged.pdf
 files/bac/bac_2019_english_se_merged.pdf
 files/bac/bac_2019_english_tm_merged.pdf
@@ -35223,6 +35228,7 @@ files/bac/bac_2020_civics_se_merged.pdf
 files/bac/bac_2020_economy_ge_merged.pdf
 files/bac/bac_2020_engineering_tm_merged.pdf
 files/bac/bac_2020_english_ge_merged.pdf
+files/bac/bac_2020_english_lp_merged.pdf
 files/bac/bac_2020_english_mt_merged.pdf
 files/bac/bac_2020_english_se_merged.pdf
 files/bac/bac_2020_english_tm_merged.pdf
@@ -35280,6 +35286,7 @@ files/bac/bac_2021_civics_se_merged.pdf
 files/bac/bac_2021_economy_ge_merged.pdf
 files/bac/bac_2021_engineering_tm_merged.pdf
 files/bac/bac_2021_english_ge_merged.pdf
+files/bac/bac_2021_english_lp_merged.pdf
 files/bac/bac_2021_english_mt_merged.pdf
 files/bac/bac_2021_english_se_merged.pdf
 files/bac/bac_2021_english_tm_merged.pdf
@@ -35338,6 +35345,7 @@ files/bac/bac_2022_economy_ge_merged.pdf
 files/bac/bac_2022_engineering_tm_merged.pdf
 files/bac/bac_2022_english_ge_merged.pdf
 files/bac/bac_2022_english_le_merged.pdf
+files/bac/bac_2022_english_lp_merged.pdf
 files/bac/bac_2022_english_mt_merged.pdf
 files/bac/bac_2022_english_se_merged.pdf
 files/bac/bac_2022_english_tm_merged.pdf
@@ -35393,6 +35401,7 @@ files/bac/bac_2023_arabic_tm_merged.pdf
 files/bac/bac_2023_economy_ge_merged.pdf
 files/bac/bac_2023_english_ge_merged.pdf
 files/bac/bac_2023_english_le_merged.pdf
+files/bac/bac_2023_english_lp_merged.pdf
 files/bac/bac_2023_english_mt_merged.pdf
 files/bac/bac_2023_english_se_merged.pdf
 files/bac/bac_2023_english_tm_merged.pdf
@@ -35447,6 +35456,7 @@ files/bac/bac_2024_arabic_tm_merged.pdf
 files/bac/bac_2024_economy_ge_merged.pdf
 files/bac/bac_2024_english_ge_merged.pdf
 files/bac/bac_2024_english_le_merged.pdf
+files/bac/bac_2024_english_lp_merged.pdf
 files/bac/bac_2024_english_mt_merged.pdf
 files/bac/bac_2024_english_se_merged.pdf
 files/bac/bac_2024_english_tm_merged.pdf
@@ -35500,6 +35510,7 @@ files/bac/bac_2025_arabic_tm_merged.pdf
 files/bac/bac_2025_economy_ge_merged.pdf
 files/bac/bac_2025_english_ge_merged.pdf
 files/bac/bac_2025_english_le_merged.pdf
+files/bac/bac_2025_english_lp_merged.pdf
 files/bac/bac_2025_english_mt_merged.pdf
 files/bac/bac_2025_english_se_merged.pdf
 files/bac/bac_2025_english_tm_merged.pdf
@@ -35547,6 +35558,7 @@ files/bac/bac_2026_arabic_tm_merged.pdf
 files/bac/bac_2026_economy_ge_merged.pdf
 files/bac/bac_2026_english_ge_merged.pdf
 files/bac/bac_2026_english_le_merged.pdf
+files/bac/bac_2026_english_lp_merged.pdf
 files/bac/bac_2026_english_mt_merged.pdf
 files/bac/bac_2026_english_se_merged.pdf
 files/bac/bac_2026_english_tm_merged.pdf
