@@ -34829,6 +34829,7 @@ files/bac/bac_2013_arabic_se_merged.pdf
 files/bac/bac_2013_arabic_tm_merged.pdf
 files/bac/bac_2013_civics_se_merged.pdf
 files/bac/bac_2013_economy_ge_merged.pdf
+files/bac/bac_2013_engineering_tm_merged.pdf
 files/bac/bac_2013_english_ge_merged.pdf
 files/bac/bac_2013_english_le_merged.pdf
 files/bac/bac_2013_english_lp_merged.pdf
@@ -34887,6 +34888,7 @@ files/bac/bac_2014_arabic_se_merged.pdf
 files/bac/bac_2014_arabic_tm_merged.pdf
 files/bac/bac_2014_civics_se_merged.pdf
 files/bac/bac_2014_economy_ge_merged.pdf
+files/bac/bac_2014_engineering_tm_merged.pdf
 files/bac/bac_2014_english_ge_merged.pdf
 files/bac/bac_2014_english_le_merged.pdf
 files/bac/bac_2014_english_lp_merged.pdf
