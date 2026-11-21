@@ -5833,7 +5833,7 @@ jobs:
           # 14. Upgrade AGP & Kotlin in android/settings.gradle
           with open("android/settings.gradle", "r", encoding="utf-8") as f:
               sg = f.read()
-          sg = re.sub(r'id\s+"com\.android\.application"\s+version\s+"[^"]+"', 'id "com.android.application" version "8.3.2"', sg)
+          sg = re.sub(r'id\s+"com\.android\.application"\s+version\s+"[^"]+"', 'id "com.android.application" version "8.9.1"', sg)
           sg = re.sub(r'id\s+"org\.jetbrains\.kotlin\.android"\s+version\s+"[^"]+"', 'id "org.jetbrains.kotlin.android" version "1.9.24"', sg)
           with open("android/settings.gradle", "w", encoding="utf-8") as f:
               f.write(sg)
@@ -5855,7 +5855,7 @@ jobs:
 
           android {
               namespace = "dz.studydz.app"
-              compileSdk = 34
+              compileSdk = 36
               ndkVersion = "25.1.8937393"
 
               compileOptions {
@@ -5871,9 +5871,9 @@ jobs:
               defaultConfig {
                   applicationId = "dz.studydz.app"
                   minSdk = 23
-                  targetSdk = 34
-                  versionCode = 7
-                  versionName = "7.0.0"
+                  targetSdk = 36
+                  versionCode = 1
+                  versionName = "1.0"
                   multiDexEnabled true
               }
 
@@ -5908,13 +5908,57 @@ jobs:
           run_cmd(["flutter", "pub", "get"])
           run_cmd(["flutter", "build", "apk", "--release", "--no-tree-shake-icons"])
 
-      - name: Check Final APK Size
+      - name: Decode Signing Key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
-          ls -lh "$APK_PATH"
+          echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 --decode > "$RUNNER_TEMP/upload.jks"
 
-      - name: Upload Release APK Artifact
+      - name: Build Signed Play Store AAB
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -f "pubspec.yaml" ]; then
+            flutter build appbundle --release
+          else
+            GRADLE_DIR="."
+            if [ -f "android/gradlew" ]; then GRADLE_DIR="android"; fi
+            cd "$GRADLE_DIR"
+            chmod +x gradlew
+            ./gradlew bundleRelease \
+              -Pandroid.injected.signing.store.file="$RUNNER_TEMP/upload.jks" \
+              -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+              -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+          fi
+
+      - name: Verify and Sign Final AAB
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          AAB_PATH=$(find . -path "*/outputs/bundle/release/*.aab" | head -n 1)
+          if [ -z "$AAB_PATH" ]; then
+            echo "ERROR: No .aab file was generated."
+            exit 1
+          fi
+          cp "$AAB_PATH" StudyDZ-PlayStore-Release.aab
+          if ! jarsigner -verify StudyDZ-PlayStore-Release.aab >/dev/null 2>&1; then
+            jarsigner -verbose \
+              -sigalg SHA256withRSA -digestalg SHA-256 \
+              -keystore "$RUNNER_TEMP/upload.jks" \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
+              StudyDZ-PlayStore-Release.aab "$KEY_ALIAS"
+          fi
+          jarsigner -verify StudyDZ-PlayStore-Release.aab
+          rm -f "$RUNNER_TEMP/upload.jks"
+
+      - name: Upload Play Store AAB Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Study-DZ-Release-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: StudyDZ-PlayStore-AAB
+          path: StudyDZ-PlayStore-Release.aab
