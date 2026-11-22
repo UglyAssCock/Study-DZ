@@ -5906,7 +5906,7 @@ jobs:
 
           # 18. Build Release APK
           run_cmd(["flutter", "pub", "get"])
-          run_cmd(["flutter", "build", "apk", "--release", "--no-tree-shake-icons"])
+          p = __import__("pathlib").Path("android/gradle/wrapper/gradle-wrapper.properties"); p.write_text(__import__("re").sub(r"gradle-[0-9.]+-(all|bin)\.zip", "gradle-8.11.1-all.zip", p.read_text())); run_cmd(["flutter", "build", "apk", "--release", "--no-tree-shake-icons"])
 
       - name: Decode Signing Key
         env:
@@ -5915,24 +5915,7 @@ jobs:
           echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 --decode > "$RUNNER_TEMP/upload.jks"
 
       - name: Build Signed Play Store AAB
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          if [ -f "pubspec.yaml" ]; then
-            flutter build appbundle --release
-          else
-            GRADLE_DIR="."
-            if [ -f "android/gradlew" ]; then GRADLE_DIR="android"; fi
-            cd "$GRADLE_DIR"
-            chmod +x gradlew
-            ./gradlew bundleRelease \
-              -Pandroid.injected.signing.store.file="$RUNNER_TEMP/upload.jks" \
-              -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
-              -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
-              -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
-          fi
+        run: flutter build appbundle --release --no-tree-shake-icons
 
       - name: Verify and Sign Final AAB
         env:
@@ -5942,18 +5925,17 @@ jobs:
         run: |
           AAB_PATH=$(find . -path "*/outputs/bundle/release/*.aab" | head -n 1)
           if [ -z "$AAB_PATH" ]; then
-            echo "ERROR: No .aab file was generated."
-            exit 1
+           echo "ERROR: No .aab file was generated."
+           exit 1
           fi
           cp "$AAB_PATH" StudyDZ-PlayStore-Release.aab
-          if ! jarsigner -verify StudyDZ-PlayStore-Release.aab >/dev/null 2>&1; then
-            jarsigner -verbose \
-              -sigalg SHA256withRSA -digestalg SHA-256 \
-              -keystore "$RUNNER_TEMP/upload.jks" \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -keypass "$KEY_PASSWORD" \
-              StudyDZ-PlayStore-Release.aab "$KEY_ALIAS"
-          fi
+          zip -d StudyDZ-PlayStore-Release.aab "META-INF/*.SF" "META-INF/*.RSA" "META-INF/*.DSA" "META-INF/*.EC" "META-INF/MANIFEST.MF" || true
+          jarsigner -verbose \
+            -sigalg SHA256withRSA -digestalg SHA-256 \
+            -keystore "$RUNNER_TEMP/upload.jks" \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            StudyDZ-PlayStore-Release.aab "$KEY_ALIAS"
           jarsigner -verify StudyDZ-PlayStore-Release.aab
           rm -f "$RUNNER_TEMP/upload.jks"
 
