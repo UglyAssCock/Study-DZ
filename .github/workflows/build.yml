@@ -5869,7 +5869,7 @@ jobs:
               }
 
               defaultConfig {
-                  applicationId = "dz.studydz.app"
+                  applicationId = "dz.studydz.app.study_dz"
                   minSdk = 24
                   targetSdk = 36
                   versionCode = 1
